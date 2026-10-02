@@ -1,0 +1,9 @@
+/target/
+/artifacts/
+__pycache__/
+*.pyc
+.venv/
+*.gpkg-wal
+*.gpkg-shm
+/symbology-style.db
+

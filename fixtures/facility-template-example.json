@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "custom.example.lighting.single-arm",
+      "revision": 1,
+      "name": "单臂路灯 · 交错布置示例",
+      "category": "照明",
+      "subtype": "单臂路灯",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": 8,
+        "power_w": 100,
+        "arm_length_m": 1.5,
+        "luminaire_model": "待选择实际产品",
+        "photometry_file": ""
+      },
+      "placement": {
+        "layout": "staggered",
+        "spacing_m": 30,
+        "offset_m": 1,
+        "spacing_definition": "每侧灯杆的沿线间距；另一侧错开半个间距",
+        "exclusions": ["交叉口", "出入口", "障碍物", "桥隧过渡"]
+      },
+      "source": "用户示例，不是规范推荐数值",
+      "notes": "8 m、100 W、30 m 为演示参数。实际布设须结合道路等级、断面、灯具配光及照明校核确定；导入目前只入库，不能执行交错布设。"
+    }
+  ]
+}

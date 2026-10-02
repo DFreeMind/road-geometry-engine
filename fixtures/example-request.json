@@ -1,0 +1,17 @@
+{
+  "route_id": "example-metric",
+  "points": [[448000.0,4420000.0],[448100.0,4420050.0],[448220.0,4420090.0],[448350.0,4420075.0],[448500.0,4420000.0]],
+  "crs": "EPSG:32650",
+  "source": "synthetic_fixture",
+  "section": {
+    "left_lanes": [3.5,3.5],
+    "right_lanes": [3.5,3.5],
+    "median_width": 1.5,
+    "left_emergency_width": 2.5,
+    "right_emergency_width": 2.5,
+    "left_shoulder_width": 0.5,
+    "right_shoulder_width": 0.5,
+    "left_slope_width": 0.0,
+    "right_slope_width": 0.0
+  }
+}

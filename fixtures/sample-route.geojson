@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "properties": {
+      "route_id": "sample-wgs84",
+      "name": "WGS84 import test route (synthetic)",
+      "source": "synthetic_fixture"
+    },
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[116.395,39.9],[116.396,39.901],[116.398,39.902],[116.401,39.9025],[116.404,39.902],[116.406,39.901]]
+    }
+  }]
+}
