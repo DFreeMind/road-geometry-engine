@@ -1,0 +1,138 @@
+.source-tools,
+.field-mapping {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  color: var(--text, #243240);
+  border: 1px solid var(--border, #d9e1e8);
+  border-radius: 12px;
+  background: var(--panel, #fff);
+  font-size: 12px;
+}
+
+.source-tools h3,
+.field-mapping h3 {
+  margin: 0 0 5px;
+  font-size: 14px;
+}
+
+.source-tools p,
+.field-mapping p {
+  margin: 0;
+  color: var(--muted, #667684);
+  line-height: 1.5;
+}
+
+.source-tools__header,
+.source-tools__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.source-tools__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface, #f1f4f7);
+}
+
+.source-tools__tabs button,
+.source-tools__primary {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: var(--text, #243240);
+  background: transparent;
+  cursor: pointer;
+}
+
+.source-tools__tabs button[aria-selected="true"] {
+  background: var(--panel, #fff);
+  box-shadow: 0 1px 3px #18334a24;
+}
+
+.source-tools__grid,
+.field-mapping__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.source-tools label,
+.field-mapping__grid label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text, #243240);
+}
+
+.source-tools input,
+.source-tools select,
+.field-mapping select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #cbd5de);
+  border-radius: 7px;
+  color: var(--text, #243240);
+  background: var(--panel, #fff);
+  font: inherit;
+}
+
+.source-tools__wide {
+  grid-column: 1 / -1;
+}
+
+.source-tools__note {
+  align-self: center;
+}
+
+.source-tools__footer > span {
+  color: var(--muted, #667684);
+}
+
+.source-tools__primary {
+  flex: 0 0 auto;
+  color: #fff;
+  background: var(--accent, #1676d2);
+}
+
+.source-tools__primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.field-mapping__fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-mapping__preview {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: var(--muted, #667684);
+  background: var(--surface, #f1f4f7);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .source-tools__header,
+  .source-tools__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-tools__grid,
+  .field-mapping__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

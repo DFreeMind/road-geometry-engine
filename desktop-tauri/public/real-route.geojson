@@ -1,0 +1,94 @@
+{
+  "type": "FeatureCollection",
+  "name": "OSM West Changan Street real route fixture",
+  "crs_note": "RFC 7946 GeoJSON coordinates in WGS 84 longitude, latitude (EPSG:4326)",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "osm-way-175598144",
+        "name": "西长安街",
+        "name_en": "West Changan Street",
+        "source": "OpenStreetMap API 0.6",
+        "source_url": "https://api.openstreetmap.org/api/0.6/way/175598144/full",
+        "osm_way_id": 175598144,
+        "osm_version": 17,
+        "osm_way_timestamp": "2026-09-14T04:37:42Z",
+        "retrieved_at": "2026-09-30",
+        "attribution": "© OpenStreetMap contributors",
+        "license": "Open Database License (ODbL) 1.0",
+        "line_role": "OSM mapped one-way road way; not a surveyed road centerline",
+        "tags": {
+          "cycleway:right": "lane",
+          "highway": "trunk",
+          "lane_markings": "yes",
+          "name": "西长安街",
+          "name:en": "West Chang'an Street",
+          "name:fr": "Rue Cháng'ān Ouest",
+          "name:ru": "улица Си-Чанъаньцзе",
+          "name:zh": "西长安街",
+          "name:zh-Hans": "西长安街",
+          "name:zh-Latn-pinyin": "Xī-Cháng'ān-jiē",
+          "oneway": "yes"
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            116.3765679,
+            39.9058521
+          ],
+          [
+            116.3760889,
+            39.9058497
+          ],
+          [
+            116.3745091,
+            39.9058523
+          ],
+          [
+            116.3736875,
+            39.9058534
+          ],
+          [
+            116.3730782,
+            39.9058583
+          ],
+          [
+            116.372697,
+            39.9058614
+          ],
+          [
+            116.3720192,
+            39.9058668
+          ],
+          [
+            116.3716052,
+            39.9058649
+          ],
+          [
+            116.3704793,
+            39.9058618
+          ],
+          [
+            116.3696292,
+            39.9058679
+          ],
+          [
+            116.3681675,
+            39.9058688
+          ],
+          [
+            116.3680881,
+            39.90587
+          ],
+          [
+            116.367947,
+            39.9058576
+          ]
+        ]
+      }
+    }
+  ]
+}

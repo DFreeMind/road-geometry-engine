@@ -1,0 +1,419 @@
+.basemap-picker {
+  position: absolute;
+  z-index: 8;
+  bottom: 98px;
+  left: 12px;
+  width: min(326px, calc(100% - 24px));
+  max-height: min(400px, calc(100% - 154px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #1d2938;
+  background: #fff;
+  border: 1px solid #e2e8ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgb(18 37 61 / 18%);
+  font-size: 12px;
+}
+
+.basemap-picker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.basemap-picker__header > div,
+.basemap-picker__option-copy,
+.basemap-picker__local > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.basemap-picker__header strong {
+  font-size: 13px;
+}
+
+.basemap-picker__header span {
+  margin-top: 3px;
+  color: #7a8795;
+  font-size: 10px;
+}
+
+.basemap-picker__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #677587;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.basemap-picker__icon:hover {
+  background: #f1f4f7;
+}
+
+.basemap-picker__tabs,
+.basemap-picker__segmented {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 0;
+}
+
+.basemap-picker__tabs button,
+.basemap-picker__segmented button {
+  flex: 1;
+  padding: 7px 8px;
+  color: #647286;
+  background: #f5f7f9;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.basemap-picker__tabs button[aria-selected="true"],
+.basemap-picker__segmented button.is-active {
+  color: #145db5;
+  background: #edf5ff;
+  border-color: #d5e7fb;
+  font-weight: 650;
+}
+
+.basemap-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 12px 0;
+  padding: 8px 9px;
+  color: #8591a0;
+  background: #f7f9fb;
+  border: 1px solid #e7ecf1;
+  border-radius: 6px;
+}
+
+.basemap-picker__search input,
+.basemap-picker__field input,
+.basemap-picker__field textarea {
+  width: 100%;
+  min-width: 0;
+  color: #263446;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font: inherit;
+}
+
+.basemap-picker__search input::placeholder,
+.basemap-picker__field input::placeholder,
+.basemap-picker__field textarea::placeholder {
+  color: #9aa5b2;
+}
+
+.basemap-picker__local {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 9px 12px 2px;
+  padding: 9px 10px;
+  text-align: left;
+  color: #207353;
+  background: #f0faf5;
+  border: 1px solid #dcefe5;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.basemap-picker__local strong {
+  font-size: 11px;
+}
+
+.basemap-picker__local small {
+  margin-top: 3px;
+  color: #748b7e;
+  font-size: 9px;
+}
+
+.basemap-picker__list {
+  min-height: 100px;
+  padding: 1px 12px 3px;
+  overflow-y: auto;
+}
+
+.basemap-picker__group h3 {
+  margin: 11px 1px 4px;
+  color: #7b8794;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.basemap-picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 7px 8px;
+  text-align: left;
+  color: #263446;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.basemap-picker__option:hover {
+  background: #f6f8fb;
+}
+
+.basemap-picker__option.is-active {
+  color: #145db5;
+  background: #f1f7ff;
+  border-color: #dceafb;
+}
+
+.basemap-picker__option > svg {
+  flex: none;
+}
+
+.basemap-picker__option strong {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.basemap-picker__option small {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #7d8996;
+  font-size: 9px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.basemap-picker__empty {
+  padding: 14px 6px;
+  text-align: center;
+  color: #8995a3;
+}
+
+.basemap-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  margin: 8px 12px 0;
+}
+
+.basemap-picker__field > span {
+  color: #5f6d7e;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.basemap-picker__field > span small {
+  margin-left: 4px;
+  color: #8b97a4;
+  font-weight: 400;
+}
+
+.basemap-picker__field input,
+.basemap-picker__field textarea {
+  padding: 7px 8px;
+  background: #fafbfd;
+  border: 1px solid #e2e8ef;
+  border-radius: 5px;
+  box-sizing: border-box;
+  font-size: 10px;
+}
+
+.basemap-picker__field textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.basemap-picker__field input:focus,
+.basemap-picker__field textarea:focus {
+  border-color: #78a9df;
+  box-shadow: 0 0 0 2px rgb(45 118 194 / 10%);
+}
+
+.basemap-picker__form {
+  padding: 0 0 12px;
+  overflow-y: auto;
+}
+
+.basemap-picker__form .basemap-picker__segmented {
+  padding-bottom: 2px;
+}
+
+.basemap-picker__form-row {
+  display: grid;
+  grid-template-columns: 95px 1fr;
+  gap: 8px;
+}
+
+.basemap-picker__hint {
+  margin: 9px 13px 0;
+  color: #7d8996;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.basemap-picker__submit {
+  width: calc(100% - 24px);
+  margin: 10px 12px 0;
+  padding: 8px;
+  color: #fff;
+  background: #226dc0;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.basemap-picker__submit:hover {
+  background: #195ea9;
+}
+
+.basemap-picker__error {
+  margin: 8px 12px 12px;
+  padding: 7px 8px;
+  color: #a5322d;
+  background: #fff4f3;
+  border: 1px solid #f1d1ce;
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* 目录集中展示选项，技术说明和凭据按需展开。 */
+.basemap-picker__header {
+  padding: 10px 12px;
+}
+.basemap-picker__local-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+.basemap-picker__local-actions .basemap-picker__local {
+  margin: 0;
+  padding: 8px;
+  color: #536b83;
+  background: #f7f9fc;
+  border-color: #e1e7ef;
+}
+.basemap-picker__local-actions .basemap-picker__local.is-active {
+  color: #145db5;
+  background: #edf5ff;
+  border-color: #c9def6;
+}
+.basemap-picker__local-actions .basemap-picker__local:hover {
+  border-color: #8fb4df;
+}
+.basemap-picker__local-actions .basemap-picker__local span {
+  flex: 1;
+}
+.basemap-picker__option strong {
+  font-size: 11px;
+}
+.basemap-picker__option small {
+  margin-top: 2px;
+  -webkit-line-clamp: 1;
+}
+.basemap-picker__disclosure {
+  margin: 0 12px;
+  padding: 8px 0;
+  border-top: 1px solid #edf0f4;
+  flex: none;
+  font-size: 10px;
+  color: #647286;
+}
+.basemap-picker__disclosure summary {
+  cursor: pointer;
+}
+.basemap-picker__disclosure p {
+  margin: 7px 0 0;
+  line-height: 1.5;
+}
+.basemap-picker__disclosure .basemap-picker__field {
+  margin: 8px 0 0;
+}
+.basemap-picker__list {
+  flex: 1;
+}
+
+.basemap-picker__header,
+.basemap-picker__tabs,
+.basemap-picker__search,
+.basemap-picker__local-actions {
+  flex-shrink: 0;
+}
+
+/* 标题和来源切换共用一行，说明随各底图选项展示。 */
+.basemap-picker__header {
+  gap: 8px;
+  padding: 7px 10px;
+}
+.basemap-picker__header > strong {
+  flex: none;
+  font-size: 12px;
+}
+.basemap-picker__header .basemap-picker__tabs {
+  flex: 1;
+  flex-direction: row;
+  padding: 0;
+  gap: 2px;
+}
+.basemap-picker__header .basemap-picker__tabs button {
+  padding: 5px 4px;
+  font-size: 11px;
+  background: transparent;
+}
+.basemap-picker__header .basemap-picker__tabs button[aria-selected="true"] {
+  background: #edf5ff;
+}
+.basemap-picker__search {
+  margin-top: 7px;
+  padding: 6px 8px;
+}
+.basemap-picker__local-actions {
+  margin-top: 6px;
+}
+.basemap-picker__local-actions .basemap-picker__local {
+  padding: 6px 8px;
+}
+.basemap-picker__group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+}
+.basemap-picker__group h3 {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+.basemap-picker__option {
+  padding: 6px;
+  gap: 4px;
+  min-width: 0;
+}
+.basemap-picker__option-copy {
+  min-width: 0;
+}
+.basemap-picker__option strong {
+  font-size: 10px;
+}
+.basemap-picker__credentials {
+  flex: none;
+  padding-bottom: 10px;
+  border-top: 1px solid #edf0f4;
+}

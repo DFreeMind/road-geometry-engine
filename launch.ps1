@@ -1,4 +1,5 @@
-param(
+﻿param(
+    [switch]$LegacyQgis,
     [string]$QgisRoot,
     [switch]$Release,
     [switch]$Debug,
@@ -7,36 +8,25 @@ param(
     [string]$OutputDir
 )
 $ErrorActionPreference = 'Stop'
-$workspacePath = $PSScriptRoot
-if ($Release -and $Debug) { throw 'Choose either -Release or -Debug.' }
-$profileName = if ($Debug) { 'debug' } else { 'release' }
-$enginePath = Join-Path $workspacePath "target\$profileName\road-geometry-engine.exe"
-if (-not (Test-Path $enginePath)) {
-    Push-Location $workspacePath
-    try {
-        if ($Debug) { & cargo build --locked } else { & cargo build --release --locked }
-        if ($LASTEXITCODE -ne 0) { throw 'Rust engine build failed.' }
-    } finally { Pop-Location }
+if ($Release -and $Debug) { throw '请选择 -Release 或 -Debug。' }
+if ($LegacyQgis) {
+    & (Join-Path $PSScriptRoot 'scripts\launch-qgis.ps1') -QgisRoot $QgisRoot -Release:$Release -Debug:$Debug -Foreground:$Foreground -SmokeTest:$SmokeTest -OutputDir $OutputDir
+    exit
 }
-. (Join-Path $workspacePath 'scripts\qgis-env.ps1')
-$runtimeRoot = Initialize-RoadQgisEnvironment -QgisRoot $QgisRoot
-$env:ROAD_ENGINE_PATH = $enginePath
-$appPath = Join-Path $workspacePath 'desktop\main.py'
-if (-not (Test-Path $appPath)) { throw "Client script missing: $appPath" }
-$pythonArgs = @($appPath)
+$profileName = if ($Release) { 'release' } else { 'debug' }
+. (Join-Path $PSScriptRoot 'scripts\maplibre-node-env.ps1')
+$appPath = Get-MapLibreDesktopPath -WorkspacePath $PSScriptRoot -ProfileName $profileName
+if (-not (Test-Path -LiteralPath $appPath)) {
+    & (Join-Path $PSScriptRoot 'scripts\build-maplibre.ps1') -GisRoot $QgisRoot -Release:$Release
+    $appPath = Get-MapLibreDesktopPath -WorkspacePath $PSScriptRoot -ProfileName $profileName
+}
 if ($SmokeTest) {
-    if (-not $OutputDir) { $OutputDir = Join-Path $workspacePath 'artifacts\smoke' }
-    $pythonArgs += @('--smoke-test', '--output-dir', $OutputDir)
-}
-if ($Foreground -or $SmokeTest) {
-    & (Join-Path $runtimeRoot 'bin\python.exe') @pythonArgs
-    if ($LASTEXITCODE -ne 0) { throw "Client exited with code $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'scripts\validate-maplibre.ps1') -AppPath $appPath -OutputDir $OutputDir
+} elseif ($Foreground) {
+    & $appPath
+    if ($LASTEXITCODE -ne 0) { throw "桌面程序退出：$LASTEXITCODE" }
 } else {
-    $logDir = Join-Path $workspacePath 'artifacts'
-    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-    # 为每个客户端实例独立记录日志，避免新窗口与已有窗口争用文件。
-    $instanceTag = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-    $process = Start-Process -FilePath (Join-Path $runtimeRoot 'bin\pythonw.exe') -ArgumentList @('"' + $appPath + '"') -WorkingDirectory $workspacePath -WindowStyle Normal -PassThru -RedirectStandardError (Join-Path $logDir "client-$instanceTag-error.log") -RedirectStandardOutput (Join-Path $logDir "client-$instanceTag.log")
-    Write-Output "Road Geometry client started. PID: $($process.Id)"
+    # 用户明确启动工作台时显示主窗口。
+    $process = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path -Parent $appPath) -WindowStyle Normal -PassThru
+    Write-Output "MapLibre 桌面工作台已启动，PID：$($process.Id)"
 }
-

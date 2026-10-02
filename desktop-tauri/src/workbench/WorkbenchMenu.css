@@ -1,0 +1,87 @@
+.workbench-menubar {
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: #fafbfc;
+  border-bottom: 1px solid #dde3eb;
+  gap: 2px;
+  z-index: 40;
+}
+.command-menu {
+  position: relative;
+}
+.command-menu > button {
+  border: 0;
+  background: transparent;
+  color: #334155;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.command-menu > button:hover,
+.command-menu > button[aria-expanded="true"] {
+  background: #e5edf7;
+  color: #145fa6;
+}
+.command-popup {
+  position: absolute;
+  top: 27px;
+  left: 0;
+  min-width: 260px;
+  background: white;
+  border: 1px solid #d7dfe9;
+  border-radius: 6px;
+  padding: 5px;
+  box-shadow: 0 10px 28px #162b4329;
+}
+.command-popup button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: #26374d;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+.command-popup button:hover,
+.command-popup button:focus-visible {
+  background: #eaf2fc;
+}
+.command-popup kbd {
+  margin-left: auto;
+  font: inherit;
+  font-size: 11px;
+  color: #64748b;
+  padding-left: 18px;
+}
+.command-check {
+  width: 12px;
+  color: #176cc0;
+}
+.command-separator {
+  height: 1px;
+  background: #e6eaf0;
+  margin: 5px 8px;
+}
+.menu-context {
+  margin-left: auto;
+  font-size: 11px;
+  color: #6c7d92;
+}
+@media (max-width: 1100px) {
+  .menu-context {
+    display: none;
+  }
+}
+
+.command-popup {
+  max-height: calc(100dvh - 90px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

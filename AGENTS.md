@@ -28,8 +28,8 @@
 - 项目存储优先采用 GeoPackage 配合外部影像文件；AI 本地推理评估 ONNX Runtime，训练和实验可使用 Python。
 - 不因换语言重写成熟投影、文件格式和拓扑算法；不同时维护两套业务几何引擎。
 - 锁定并记录原生依赖版本、部署方式、许可证及兼容性。
-- 当前原型采用已安装 QGIS 3.44 的 Qt/PyQGIS 独立客户端，通过异步本地进程调用 Rust 引擎；这是快速验证方案，尚未验证 C++ 桥接及独立安装包。
-- Rust 内部交换使用明确标记 CRS 的投影米制坐标；地理 GeoJSON 导出由 QGIS 转为 WGS84，不能把内部投影坐标冒充标准地理 GeoJSON。
+- 当前客户端选用 Tauri 2 + React/TypeScript + MapLibre GL JS，通过异步本地进程调用原 Rust 引擎；GDAL/PROJ 命令行资源随程序提供。Qt/PyQGIS 保留为显式启动的迁移参考，不继续维护第二套业务几何引擎。独立安装器、干净 Windows 部署及原生依赖分发许可仍需验收。
+- Rust 内部交换使用明确标记 CRS 的投影米制坐标；MapLibre 显示副本与地理 GeoJSON 导出转换为 WGS84，工程 GeoPackage 保留业务 CRS，不能把内部投影坐标冒充标准地理 GeoJSON。
 
 ## 空间与属性规则
 

@@ -1,4 +1,4 @@
-function Initialize-RoadQgisEnvironment {
+﻿function Initialize-RoadQgisEnvironment {
     param([string]$QgisRoot)
     if (-not $QgisRoot) { $QgisRoot = $env:ROAD_QGIS_ROOT }
     if (-not $QgisRoot) {

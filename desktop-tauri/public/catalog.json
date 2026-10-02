@@ -1,0 +1,1405 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "system.f00.t00",
+      "revision": 1,
+      "name": "警告标志 · 基础模板",
+      "category": "标志",
+      "subtype": "警告标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t01",
+      "revision": 1,
+      "name": "禁令标志 · 基础模板",
+      "category": "标志",
+      "subtype": "禁令标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t02",
+      "revision": 1,
+      "name": "指示标志 · 基础模板",
+      "category": "标志",
+      "subtype": "指示标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t03",
+      "revision": 1,
+      "name": "指路标志 · 基础模板",
+      "category": "标志",
+      "subtype": "指路标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t04",
+      "revision": 1,
+      "name": "旅游区标志 · 基础模板",
+      "category": "标志",
+      "subtype": "旅游区标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t05",
+      "revision": 1,
+      "name": "作业区标志 · 基础模板",
+      "category": "标志",
+      "subtype": "作业区标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t06",
+      "revision": 1,
+      "name": "辅助标志 · 基础模板",
+      "category": "标志",
+      "subtype": "辅助标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f00.t07",
+      "revision": 1,
+      "name": "可变信息标志 · 基础模板",
+      "category": "标志",
+      "subtype": "可变信息标志",
+      "geometry": "Point",
+      "specification": {
+        "sign_code": "",
+        "panel_width_m": null,
+        "panel_height_m": null,
+        "support_type": "",
+        "reflective_material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=15B1FC09EE1AE92F1A9EC97BA3C9E451",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t00",
+      "revision": 1,
+      "name": "纵向标线 · 基础模板",
+      "category": "标线",
+      "subtype": "纵向标线",
+      "geometry": "LineString",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t01",
+      "revision": 1,
+      "name": "横向标线 · 基础模板",
+      "category": "标线",
+      "subtype": "横向标线",
+      "geometry": "LineString",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t02",
+      "revision": 1,
+      "name": "导向箭头 · 基础模板",
+      "category": "标线",
+      "subtype": "导向箭头",
+      "geometry": "LineString",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t03",
+      "revision": 1,
+      "name": "路面文字 · 基础模板",
+      "category": "标线",
+      "subtype": "路面文字",
+      "geometry": "LineString",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t04",
+      "revision": 1,
+      "name": "立面标记 · 基础模板",
+      "category": "标线",
+      "subtype": "立面标记",
+      "geometry": "LineString",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f01.t05",
+      "revision": 1,
+      "name": "突起路标 · 基础模板",
+      "category": "标线",
+      "subtype": "突起路标",
+      "geometry": "Point",
+      "specification": {
+        "color": "",
+        "line_width_m": null,
+        "dash_length_m": null,
+        "gap_length_m": null,
+        "material": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=A9BE85F3DDD0EC531B98C84B3312E240",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t00",
+      "revision": 1,
+      "name": "波形梁护栏 · 基础模板",
+      "category": "防护",
+      "subtype": "波形梁护栏",
+      "geometry": "LineString",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t01",
+      "revision": 1,
+      "name": "混凝土护栏 · 基础模板",
+      "category": "防护",
+      "subtype": "混凝土护栏",
+      "geometry": "LineString",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t02",
+      "revision": 1,
+      "name": "缆索护栏 · 基础模板",
+      "category": "防护",
+      "subtype": "缆索护栏",
+      "geometry": "LineString",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t03",
+      "revision": 1,
+      "name": "桥梁栏杆 · 基础模板",
+      "category": "防护",
+      "subtype": "桥梁栏杆",
+      "geometry": "LineString",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t04",
+      "revision": 1,
+      "name": "开口护栏 · 基础模板",
+      "category": "防护",
+      "subtype": "开口护栏",
+      "geometry": "LineString",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f02.t05",
+      "revision": 1,
+      "name": "防撞缓冲设施 · 基础模板",
+      "category": "防护",
+      "subtype": "防撞缓冲设施",
+      "geometry": "Point",
+      "specification": {
+        "protection_level": "",
+        "height_m": null,
+        "post_spacing_m": null,
+        "foundation": "",
+        "transition_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t00",
+      "revision": 1,
+      "name": "轮廓标 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "轮廓标",
+      "geometry": "Point",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t01",
+      "revision": 1,
+      "name": "示警桩 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "示警桩",
+      "geometry": "Point",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t02",
+      "revision": 1,
+      "name": "示警墩 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "示警墩",
+      "geometry": "Point",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t03",
+      "revision": 1,
+      "name": "道口标柱 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "道口标柱",
+      "geometry": "Point",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t04",
+      "revision": 1,
+      "name": "隧道轮廓带 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "隧道轮廓带",
+      "geometry": "LineString",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f03.t05",
+      "revision": 1,
+      "name": "线形诱导标 · 基础模板",
+      "category": "视线诱导",
+      "subtype": "线形诱导标",
+      "geometry": "Point",
+      "specification": {
+        "reflective_color": "",
+        "height_m": null,
+        "mounting_type": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f04.t00",
+      "revision": 1,
+      "name": "隔离栅 · 基础模板",
+      "category": "隔离与防落",
+      "subtype": "隔离栅",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "mesh_size_m": null,
+        "material": "",
+        "foundation": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f04.t01",
+      "revision": 1,
+      "name": "防落物网 · 基础模板",
+      "category": "隔离与防落",
+      "subtype": "防落物网",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "mesh_size_m": null,
+        "material": "",
+        "foundation": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f04.t02",
+      "revision": 1,
+      "name": "防落石网 · 基础模板",
+      "category": "隔离与防落",
+      "subtype": "防落石网",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "mesh_size_m": null,
+        "material": "",
+        "foundation": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t00",
+      "revision": 1,
+      "name": "防眩板 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "防眩板",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t01",
+      "revision": 1,
+      "name": "防眩网 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "防眩网",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t02",
+      "revision": 1,
+      "name": "声屏障 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "声屏障",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t03",
+      "revision": 1,
+      "name": "防风栅 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "防风栅",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t04",
+      "revision": 1,
+      "name": "防雪栅 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "防雪栅",
+      "geometry": "LineString",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f05.t05",
+      "revision": 1,
+      "name": "积雪标杆 · 基础模板",
+      "category": "防眩与环境",
+      "subtype": "积雪标杆",
+      "geometry": "Point",
+      "specification": {
+        "height_m": null,
+        "material": "",
+        "performance_basis": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://xxgk.mot.gov.cn/jigou/glj/202103/t20210330_3545677.html",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f06.t00",
+      "revision": 1,
+      "name": "单臂路灯 · 基础模板",
+      "category": "照明",
+      "subtype": "单臂路灯",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f06.t01",
+      "revision": 1,
+      "name": "双臂路灯 · 基础模板",
+      "category": "照明",
+      "subtype": "双臂路灯",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f06.t02",
+      "revision": 1,
+      "name": "中杆照明 · 基础模板",
+      "category": "照明",
+      "subtype": "中杆照明",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f06.t03",
+      "revision": 1,
+      "name": "高杆照明 · 基础模板",
+      "category": "照明",
+      "subtype": "高杆照明",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f06.t04",
+      "revision": 1,
+      "name": "隧道照明 · 基础模板",
+      "category": "照明",
+      "subtype": "隧道照明",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f06.t05",
+      "revision": 1,
+      "name": "人行照明 · 基础模板",
+      "category": "照明",
+      "subtype": "人行照明",
+      "geometry": "Point",
+      "specification": {
+        "mounting_height_m": null,
+        "power_w": null,
+        "arm_length_m": null,
+        "photometry_file": "",
+        "luminaire_model": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "https://cgj.sz.gov.cn/attachment/1/1096/1096280/2076186.pdf",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。应记录配光文件，并校核亮度/照度、均匀度及眩光；不能仅由道路宽度确定间距。"
+    },
+    {
+      "id": "system.f07.t00",
+      "revision": 1,
+      "name": "机动车信号灯 · 基础模板",
+      "category": "信号控制",
+      "subtype": "机动车信号灯",
+      "geometry": "Point",
+      "specification": {
+        "signal_group": "",
+        "support_type": "",
+        "mounting_height_m": null,
+        "controller_scheme": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f07.t01",
+      "revision": 1,
+      "name": "非机动车信号灯 · 基础模板",
+      "category": "信号控制",
+      "subtype": "非机动车信号灯",
+      "geometry": "Point",
+      "specification": {
+        "signal_group": "",
+        "support_type": "",
+        "mounting_height_m": null,
+        "controller_scheme": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f07.t02",
+      "revision": 1,
+      "name": "行人信号灯 · 基础模板",
+      "category": "信号控制",
+      "subtype": "行人信号灯",
+      "geometry": "Point",
+      "specification": {
+        "signal_group": "",
+        "support_type": "",
+        "mounting_height_m": null,
+        "controller_scheme": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f07.t03",
+      "revision": 1,
+      "name": "车道指示器 · 基础模板",
+      "category": "信号控制",
+      "subtype": "车道指示器",
+      "geometry": "Point",
+      "specification": {
+        "signal_group": "",
+        "support_type": "",
+        "mounting_height_m": null,
+        "controller_scheme": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f07.t04",
+      "revision": 1,
+      "name": "信号控制机 · 基础模板",
+      "category": "信号控制",
+      "subtype": "信号控制机",
+      "geometry": "Point",
+      "specification": {
+        "signal_group": "",
+        "support_type": "",
+        "mounting_height_m": null,
+        "controller_scheme": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f08.t00",
+      "revision": 1,
+      "name": "监控摄像机 · 基础模板",
+      "category": "监控与检测",
+      "subtype": "监控摄像机",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "mounting_height_m": null,
+        "field_of_view_deg": null,
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f08.t01",
+      "revision": 1,
+      "name": "交通检测器 · 基础模板",
+      "category": "监控与检测",
+      "subtype": "交通检测器",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "mounting_height_m": null,
+        "field_of_view_deg": null,
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f08.t02",
+      "revision": 1,
+      "name": "气象检测器 · 基础模板",
+      "category": "监控与检测",
+      "subtype": "气象检测器",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "mounting_height_m": null,
+        "field_of_view_deg": null,
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f08.t03",
+      "revision": 1,
+      "name": "车辆识别设备 · 基础模板",
+      "category": "监控与检测",
+      "subtype": "车辆识别设备",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "mounting_height_m": null,
+        "field_of_view_deg": null,
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f09.t00",
+      "revision": 1,
+      "name": "通信设备 · 基础模板",
+      "category": "通信与收费",
+      "subtype": "通信设备",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "system_id": "",
+        "communication_type": "",
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f09.t01",
+      "revision": 1,
+      "name": "紧急电话 · 基础模板",
+      "category": "通信与收费",
+      "subtype": "紧急电话",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "system_id": "",
+        "communication_type": "",
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f09.t02",
+      "revision": 1,
+      "name": "ETC门架 · 基础模板",
+      "category": "通信与收费",
+      "subtype": "ETC门架",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "system_id": "",
+        "communication_type": "",
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f09.t03",
+      "revision": 1,
+      "name": "收费车道设备 · 基础模板",
+      "category": "通信与收费",
+      "subtype": "收费车道设备",
+      "geometry": "Point",
+      "specification": {
+        "device_model": "",
+        "system_id": "",
+        "communication_type": "",
+        "power_supply": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f10.t00",
+      "revision": 1,
+      "name": "雨水口 · 基础模板",
+      "category": "排水与配套",
+      "subtype": "雨水口",
+      "geometry": "Point",
+      "specification": {
+        "diameter_m": null,
+        "depth_m": null,
+        "material": "",
+        "connection_id": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f10.t01",
+      "revision": 1,
+      "name": "检查井 · 基础模板",
+      "category": "排水与配套",
+      "subtype": "检查井",
+      "geometry": "Point",
+      "specification": {
+        "diameter_m": null,
+        "depth_m": null,
+        "material": "",
+        "connection_id": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f10.t02",
+      "revision": 1,
+      "name": "排水沟 · 基础模板",
+      "category": "排水与配套",
+      "subtype": "排水沟",
+      "geometry": "LineString",
+      "specification": {
+        "diameter_m": null,
+        "depth_m": null,
+        "material": "",
+        "connection_id": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f10.t03",
+      "revision": 1,
+      "name": "电力控制箱 · 基础模板",
+      "category": "排水与配套",
+      "subtype": "电力控制箱",
+      "geometry": "Point",
+      "specification": {
+        "diameter_m": null,
+        "depth_m": null,
+        "material": "",
+        "connection_id": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f10.t04",
+      "revision": 1,
+      "name": "管线井 · 基础模板",
+      "category": "排水与配套",
+      "subtype": "管线井",
+      "geometry": "Point",
+      "specification": {
+        "diameter_m": null,
+        "depth_m": null,
+        "material": "",
+        "connection_id": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t00",
+      "revision": 1,
+      "name": "里程牌 · 基础模板",
+      "category": "其他附属",
+      "subtype": "里程牌",
+      "geometry": "Point",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t01",
+      "revision": 1,
+      "name": "百米桩 · 基础模板",
+      "category": "其他附属",
+      "subtype": "百米桩",
+      "geometry": "Point",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t02",
+      "revision": 1,
+      "name": "公路界碑 · 基础模板",
+      "category": "其他附属",
+      "subtype": "公路界碑",
+      "geometry": "Point",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t03",
+      "revision": 1,
+      "name": "限高架 · 基础模板",
+      "category": "其他附属",
+      "subtype": "限高架",
+      "geometry": "Point",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t04",
+      "revision": 1,
+      "name": "减速丘 · 基础模板",
+      "category": "其他附属",
+      "subtype": "减速丘",
+      "geometry": "LineString",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t05",
+      "revision": 1,
+      "name": "凸面镜 · 基础模板",
+      "category": "其他附属",
+      "subtype": "凸面镜",
+      "geometry": "Point",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    },
+    {
+      "id": "system.f11.t06",
+      "revision": 1,
+      "name": "避险车道 · 基础模板",
+      "category": "其他附属",
+      "subtype": "避险车道",
+      "geometry": "Polygon",
+      "specification": {
+        "product_model": "",
+        "width_m": null,
+        "height_m": null,
+        "business_station": ""
+      },
+      "placement": {
+        "layout": "manual",
+        "spacing_m": null,
+        "offset_m": null
+      },
+      "source": "",
+      "notes": "分类检索与示意生产模板，规格待填写；不表示已完成工程设计或规范校核。"
+    }
+  ]
+}

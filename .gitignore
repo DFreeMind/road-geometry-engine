@@ -6,4 +6,11 @@ __pycache__/
 *.gpkg-wal
 *.gpkg-shm
 /symbology-style.db
+node_modules/
+desktop-tauri/dist/
+desktop-tauri/src-tauri/target/
+desktop-tauri/src-tauri/gen/
+desktop-tauri/src-tauri/resources/engine/
+desktop-tauri/src-tauri/resources/gis/
+output/playwright/
 

@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 use std::io::{self, Read};
 use std::time::Instant;
 
+mod scene;
+
 const RULE_VERSION: &str = "0.1.0";
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_POINTS: usize = 2_000;
@@ -20,6 +22,8 @@ struct Request {
     #[serde(default)]
     source: Option<String>,
     section: Section,
+    #[serde(default)]
+    scene_options: scene::SceneOptions,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,6 +104,7 @@ fn generate(request: Request, started: Instant) -> Result<Value, String> {
         points.push(coord);
     }
 
+    let scene_options = request.scene_options;
     let section = request.section;
     validate_widths(&section)?;
     let source = request
@@ -293,6 +298,14 @@ fn generate(request: Request, started: Instant) -> Result<Value, String> {
         "warnings": []
     });
     response["projected_crs"] = json!(crs);
+    response["ancillary_layers"] = json!(scene::build_ancillary_layers(
+        &request.route_id,
+        &points,
+        &section,
+        &scene_options,
+        &source,
+        &crs,
+    )?);
     Ok(response)
 }
 
@@ -401,7 +414,7 @@ fn signed(side: &str, distance: f64) -> f64 {
     }
 }
 
-fn offset_line(points: &[Coord], offset: f64) -> Result<Vec<[f64; 2]>, String> {
+pub(crate) fn offset_line(points: &[Coord], offset: f64) -> Result<Vec<[f64; 2]>, String> {
     let mut output = Vec::with_capacity(points.len());
     for i in 0..points.len() {
         let prev = if i > 0 {
@@ -534,6 +547,7 @@ mod tests {
             points,
             crs: Some("EPSG:32610".into()),
             source: Some("survey".into()),
+            scene_options: scene::SceneOptions::default(),
             section: Section {
                 left_lanes: vec![3.5, 3.5],
                 right_lanes: vec![3.5, 3.5],

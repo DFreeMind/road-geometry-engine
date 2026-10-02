@@ -1,4 +1,4 @@
-param([string]$QgisRoot)
+﻿param([string]$QgisRoot)
 $ErrorActionPreference = 'Stop'
 $workspacePath = Split-Path $PSScriptRoot -Parent
 Push-Location $workspacePath

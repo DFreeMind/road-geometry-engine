@@ -1,0 +1,23 @@
+[package]
+name = "lujing-desktop"
+version = "0.2.0"
+edition = "2021"
+description = "路境 MapLibre 道路设计工作台"
+
+[lib]
+name = "lujing_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+dunce = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
