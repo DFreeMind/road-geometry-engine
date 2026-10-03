@@ -568,6 +568,27 @@ button:disabled {
   background: #ffffffc9;
   font-size: 9px;
 }
+.map-scale-zoom {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.map-scale-zoom > .maplibregl-ctrl-scale {
+  margin: 0;
+  float: none;
+}
+.map-zoom-level {
+  color: #425570;
+  background: #ffffffe6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 58px;
+  text-align: center;
+  pointer-events: auto;
+}
 .maplibregl-ctrl-attrib {
   display: block;
 }

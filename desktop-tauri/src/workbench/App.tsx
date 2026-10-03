@@ -4,7 +4,11 @@ import {
   type SourceBinding,
   type FieldMapping,
 } from "./connections";
-import { installMapWheelHandling } from "./MapInteraction";
+import {
+  installMapWheelHandling,
+  installPageZoomGuard,
+} from "./MapInteraction";
+import { MapScaleZoomControl } from "./MapScaleZoomControl";
 import {
   useCallback,
   useEffect,
@@ -1178,6 +1182,7 @@ export function App() {
     const removeWheelHandling = installMapWheelHandling(map, () =>
       Boolean(routeDrag.current),
     );
+    const removePageZoomGuard = installPageZoomGuard(window);
     const releaseDrag = () => {
       if (!routeDrag.current) return;
       routeDrag.current = null;
@@ -1198,10 +1203,7 @@ export function App() {
       }),
       "top-right",
     );
-    map.addControl(
-      new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }),
-      "bottom-left",
-    );
+    map.addControl(new MapScaleZoomControl(), "bottom-left");
     map.addControl(
       new maplibregl.AttributionControl({ compact: false }),
       "bottom-right",
@@ -1277,6 +1279,7 @@ export function App() {
     });
     return () => {
       removeWheelHandling();
+      removePageZoomGuard();
       window.removeEventListener("mouseup", releaseOutside);
       window.removeEventListener("blur", releaseDrag);
       map.remove();

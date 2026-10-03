@@ -101,6 +101,17 @@ try {
   await new Promise(resolve => setTimeout(resolve, 800));
   await waitFor('window.__ROAD_WORKBENCH__.getMap()?.isStyleLoaded()');
   assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getMap().getLayer("road-route-line"))'), '参考线图层缺失');
+  if(process.env.ROAD_QA_PINCH_PROBE_ONLY){
+    const point=await evaluate('(()=>{const b=window.__ROAD_WORKBENCH__.getMap().getCanvas().getBoundingClientRect();return {x:b.left+b.width*.6,y:b.top+b.height*.5};})()');
+    const read=()=>evaluate('({z:window.__ROAD_WORKBENCH__.getMap().getZoom(),scale:window.visualViewport.scale,width:window.innerWidth})');
+    const before=await read();
+    await command('Input.synthesizePinchGesture',{...point,scaleFactor:1.5,relativeSpeed:500,gestureSourceType:'mouse'});
+    await new Promise(resolve=>setTimeout(resolve,400));
+    const after=await read();
+    await fs.writeFile(path.join(outputDirectory,'pinch-probe.json'),JSON.stringify({before,after},null,2));
+    console.log(JSON.stringify({before,after,outputDirectory}));
+    socket.close();process.exit(0);
+  }
   const catalog = await invoke('facilities_catalog');
   assert.equal(catalog.entries.length, 66); check('原生设施目录', { entries: catalog.entries.length });
   // 文件和本地数据库使用同一查询命令，不启动任何空间数据库服务。
@@ -151,6 +162,15 @@ try {
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()'),panBefore.zoom);
   assert.notDeepEqual(await evaluate('window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()'),panBefore.center);
   check('触控板精细双指滚动平移',true);
+  const fastPanBefore=await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
+  await command('Input.dispatchMouseEvent',{type:'mouseWheel',...gesturePoint,deltaX:0,deltaY:86.5});
+  await new Promise(resolve=>setTimeout(resolve,100));
+  assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()'),fastPanBefore.zoom);
+  assert.notDeepEqual(await evaluate('window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()'),fastPanBefore.center);
+  await command('Input.dispatchMouseEvent',{type:'mouseWheel',...gesturePoint,deltaX:0,deltaY:-120});
+  await new Promise(resolve=>setTimeout(resolve,600));
+  assert(await evaluate(`window.__ROAD_WORKBENCH__.getMap().getZoom()>${fastPanBefore.zoom}`));
+  check('高速触控板像素滑动不误缩放，切换鼠标滚轮仍可缩放',true);
   const pinchBefore=await evaluate(`(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),b=m.getCanvas().getBoundingClientRect();return {zoom:m.getZoom(),anchor:m.unproject([${gesturePoint.x}-b.left,${gesturePoint.y}-b.top]).toArray()};})()`);
   await command('Input.dispatchMouseEvent',{type:'mouseWheel',...gesturePoint,deltaX:0,deltaY:-15,modifiers:2});
   await new Promise(resolve=>setTimeout(resolve,200));
@@ -158,6 +178,38 @@ try {
   const anchorAfter=await evaluate(`(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),b=m.getCanvas().getBoundingClientRect();return m.unproject([${gesturePoint.x}-b.left,${gesturePoint.y}-b.top]).toArray();})()`);
   assert(Math.abs(anchorAfter[0]-pinchBefore.anchor[0])<1e-7&&Math.abs(anchorAfter[1]-pinchBefore.anchor[1])<1e-7);
   check('触控板捏合缩放保持指针位置',true);
+  const pinchInZoom=await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()');
+  await command('Input.dispatchMouseEvent',{type:'mouseWheel',...gesturePoint,deltaX:0,deltaY:15,modifiers:2});
+  await new Promise(resolve=>setTimeout(resolve,100));
+  assert(await evaluate(`window.__ROAD_WORKBENCH__.getMap().getZoom()<${pinchInZoom}`));
+  await waitFor('document.querySelector(".map-zoom-level")?.textContent===`Z ${window.__ROAD_WORKBENCH__.getMap().getZoom().toFixed(2)}`');
+  assert.equal(await evaluate('window.visualViewport.scale'),1,'捏合不能缩放工作台网页');
+  assert(await evaluate(`(()=>{const s=document.querySelector('.maplibregl-ctrl-scale').getBoundingClientRect(),z=document.querySelector('.map-zoom-level').getBoundingClientRect();return z.left>=s.right&&Math.abs(z.bottom-s.bottom)<=2;})()`));
+  await screenshot('45-trackpad-zoom-level.png');
+  check('双指捏合缩小、页面缩放隔离与比例尺旁实时Z值',true);
+  // 合成浏览器原生捏合，不直接注入 Ctrl+wheel：可检出容器关闭原生手势的回归。
+  const nativePinchBefore=await evaluate('({z:window.__ROAD_WORKBENCH__.getMap().getZoom(),scale:window.visualViewport.scale,width:window.innerWidth})');
+  await command('Input.synthesizePinchGesture',{...gesturePoint,scaleFactor:1.5,relativeSpeed:500,gestureSourceType:'mouse'});
+  await new Promise(resolve=>setTimeout(resolve,300));
+  const nativePinchIn=await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()');
+  assert(nativePinchIn>nativePinchBefore.z+0.1,'原生捏合必须真正进入地图，不能只通过Ctrl滚轮测试');
+  await command('Input.synthesizePinchGesture',{...gesturePoint,scaleFactor:0.75,relativeSpeed:500,gestureSourceType:'mouse'});
+  await new Promise(resolve=>setTimeout(resolve,300));
+  assert((await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()'))<nativePinchIn-0.1);
+  assert.equal(await evaluate('window.visualViewport.scale'),nativePinchBefore.scale);
+  assert.equal(await evaluate('window.innerWidth'),nativePinchBefore.width);
+  const panelPoint=await evaluate('(()=>{const b=document.querySelector(".data-panel").getBoundingClientRect();return {x:b.left+b.width*.5,y:b.top+25};})()');
+  const panelPinchBefore=await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()');
+  await command('Input.synthesizePinchGesture',{...panelPoint,scaleFactor:1.5,relativeSpeed:500,gestureSourceType:'mouse'});
+  await new Promise(resolve=>setTimeout(resolve,300));
+  assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()'),panelPinchBefore);
+  assert.equal(await evaluate('window.innerWidth'),nativePinchBefore.width);
+  assert.equal(await evaluate('window.visualViewport.scale'),nativePinchBefore.scale);
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'+',code:'Equal',modifiers:2});
+  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'+',code:'Equal',modifiers:2});
+  await new Promise(resolve=>setTimeout(resolve,200));
+  assert.equal(await evaluate('window.innerWidth'),nativePinchBefore.width);
+  check('原生触控板捏合双向缩放，面板手势及快捷键不缩放工作台',true);
   await click('[aria-label="编辑路线顶点"]');
   await waitFor('window.__ROAD_WORKBENCH__.getMap().querySourceFeatures("road-route-vertices").some(f=>f.geometry.type==="Point")');
   const vertexBefore=await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length');
