@@ -1,5 +1,6 @@
 import {
   saveBindingMapping,
+  readConnections,
   type SourceBinding,
   type FieldMapping,
 } from "./connections";
@@ -97,7 +98,14 @@ import {
 import {
   RouteFeatureSelector,
   type RouteFeature,
+  type RoutePageLoad,
 } from "./RouteFeatureSelector";
+import { routeSourceCollection } from "./routeSourceLayer";
+import {
+  readSourcePage,
+  type RouteDataSource,
+  type SourceCapabilities,
+} from "./sourceAccess";
 
 type Panel = "data" | "road" | "facility" | "layers";
 type Tool = "pan" | "route" | "vertex" | "facility";
@@ -197,6 +205,10 @@ export function App() {
   const outputLayerIds = useRef<Set<string>>(new Set());
   const rasterLayerIds = useRef<Set<string>>(new Set());
   const vectorLayerIds = useRef<Set<string>>(new Set());
+  const sourceDataCache = useRef(new Map<string, GeoJSON.FeatureCollection>());
+  const routeDisplayCache = useRef(
+    new WeakMap<GeoJSON.FeatureCollection, GeoJSON.FeatureCollection>(),
+  );
   const routeDrag = useRef<{ index: number; moved: boolean } | null>(null);
   const lastVertexDrag = useRef(0);
   const selectedVertex = useRef<number | null>(null);
@@ -269,6 +281,15 @@ export function App() {
       : "浏览器预览 · 生成与文件操作需在桌面端运行",
   });
   const [working, setWorking] = useState(false);
+  const [sourceReading, setSourceReading] = useState(false);
+  const sourceReadingRef = useRef(false);
+  const [sourceEntry, setSourceEntry] = useState<"file" | "connection">(() => {
+    try {
+      return readConnections().length ? "connection" : "file";
+    } catch {
+      return "connection";
+    }
+  });
   const [activeTemplate, setActiveTemplate] = useState<CatalogEntry | null>(
     null,
   );
@@ -641,8 +662,11 @@ export function App() {
         const source = map.getSource(id) as
           | maplibregl.GeoJSONSource
           | undefined;
-        if (source) source.setData(data);
-        else map.addSource(id, { type: "geojson", data });
+        if (source) {
+          // 视图和可见性变化不重新序列化未修改的源图层。
+          if (sourceDataCache.current.get(id) !== data) source.setData(data);
+        } else map.addSource(id, { type: "geojson", data });
+        sourceDataCache.current.set(id, data);
       };
       addOrSet("road-route", route);
       addOrSet("road-route-vertices", {
@@ -974,6 +998,7 @@ export function App() {
             if (map.getLayer(`${previous}-${suffix}`))
               map.removeLayer(`${previous}-${suffix}`);
           if (map.getSource(previous)) map.removeSource(previous);
+          sourceDataCache.current.delete(previous);
         }
       outputLayerIds.current = activeOutputIds;
       for (const entry of current.catalog.entries)
@@ -982,7 +1007,24 @@ export function App() {
       for (const item of (current.vector_basemaps as any[]) ?? []) {
         const id = `background-${item.id}`;
         activeVectorIds.add(id);
-        addOrSet(id, item.collection);
+        let display = item.collection as GeoJSON.FeatureCollection;
+        if (item.kind === "route-source") {
+          let cached = routeDisplayCache.current.get(display);
+          if (!cached) {
+            // 地图副本只携带点击索引，完整业务属性仍保留在工程源图层中。
+            cached = {
+              type: "FeatureCollection",
+              features: display.features.map((feature, index) => ({
+                ...feature,
+                id: index,
+                properties: { __source_index: index },
+              })),
+            };
+            routeDisplayCache.current.set(display, cached);
+          }
+          display = cached;
+        }
+        addOrSet(id, display);
         for (const [suffix, type, filter, paint] of [
           [
             "fill",
@@ -994,7 +1036,11 @@ export function App() {
             "line",
             "line",
             ["!=", "$type", "Point"],
-            { "line-color": "#8499ad", "line-width": 1.3 },
+            {
+              "line-color":
+                item.kind === "route-source" ? "#2587bd" : "#8499ad",
+              "line-width": item.kind === "route-source" ? 2.5 : 1.3,
+            },
           ],
           [
             "point",
@@ -1021,6 +1067,7 @@ export function App() {
             if (map.getLayer(`${id}-${suffix}`))
               map.removeLayer(`${id}-${suffix}`);
           if (map.getSource(id)) map.removeSource(id);
+          sourceDataCache.current.delete(id);
         }
       vectorLayerIds.current = activeVectorIds;
       const activeRasterIds = new Set<string>();
@@ -1234,6 +1281,7 @@ export function App() {
       window.removeEventListener("blur", releaseDrag);
       map.remove();
       mapRef.current = null;
+      sourceDataCache.current.clear();
     };
     // 地图容器只在初次渲染时创建，后续数据通过独立同步 effect 更新。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1305,7 +1353,40 @@ export function App() {
         });
         if (features.length)
           setSelectedFacility(String(features[0].properties?.id ?? ""));
-        else setSelectedFacility(null);
+        else {
+          setSelectedFacility(null);
+          const sourceLayers = (
+            (projectRef.current.vector_basemaps as any[]) ?? []
+          ).filter(
+            (item) => item.kind === "route-source" && item.visible !== false,
+          );
+          const ids = sourceLayers
+            .map((item) => `background-${item.id}-line`)
+            .filter((id) => map.getLayer(id));
+          const hit = ids.length
+            ? map.queryRenderedFeatures(
+                [
+                  [event.point.x - 5, event.point.y - 5],
+                  [event.point.x + 5, event.point.y + 5],
+                ],
+                { layers: ids },
+              )[0]
+            : undefined;
+          if (hit) {
+            const item = sourceLayers.find(
+              (row) => `background-${row.id}-line` === hit.layer.id,
+            );
+            const feature =
+              item?.collection.features[Number(hit.properties?.__source_index)];
+            if (feature)
+              void selectSourceFeature(
+                feature,
+                item.source_label,
+                item.binding,
+                item.fields,
+              );
+          }
+        }
       }
       setContextMenu(null);
     },
@@ -1473,7 +1554,7 @@ export function App() {
 
   const [layerChoices, setLayerChoices] = useState<any[] | null>(null);
   const layerResolver = useRef<((name: string | null) => void) | null>(null);
-  async function readVectorFile(path: string) {
+  async function chooseVectorLayer(path: string) {
     const metadata: any = await invokeNative("list_vector_layers", { path });
     const available = metadata.layers ?? [];
     if (!available.length) throw new Error("文件中没有可读取图层。");
@@ -1483,6 +1564,10 @@ export function App() {
         layerResolver.current = resolve;
         setLayerChoices(available);
       });
+    return layerName;
+  }
+  async function readVectorFile(path: string) {
+    const layerName = await chooseVectorLayer(path);
     if (layerName === null) return null;
     return invokeNative("import_vector", { path, layerName });
   }
@@ -1497,12 +1582,22 @@ export function App() {
     binding?: SourceBinding;
     fields: Field[];
     revision: number;
+    loadPage?: RoutePageLoad;
+    capabilities?: SourceCapabilities;
+    pageInfo?: {
+      offset: number;
+      limit: number;
+      hasMore: boolean;
+      expression: string;
+      warning?: string;
+    };
   } | null>(null);
   const routeChoiceRevision = useRef(0);
   async function acceptVector(
     imported: any,
     label: string,
     binding?: SourceBinding,
+    loadPage?: RoutePageLoad,
   ) {
     if (!binding && imported.layer_name)
       label = `${label} · ${imported.layer_name}`;
@@ -1510,22 +1605,70 @@ export function App() {
       (imported.collection?.features?.filter((feature: any) =>
         ["LineString", "MultiLineString"].includes(feature.geometry?.type),
       ) as RouteFeature[] | undefined) ?? [];
-    if (!features.length) throw new Error("所选图层没有可用线要素。");
+    if (!features.length && !loadPage)
+      throw new Error("所选图层没有可用线要素。");
     const fields: Field[] =
       Array.isArray(imported.fields) && imported.fields.length
         ? imported.fields
-        : Object.keys(features[0].properties ?? {});
-    if (features.length > 1) {
+        : Object.keys(features[0]?.properties ?? {});
+    if (features.length > 1 || loadPage) {
       setRouteChoices({
         features,
         label,
         binding,
         fields,
         revision: ++routeChoiceRevision.current,
+        loadPage,
+        capabilities: imported.capabilities,
+        pageInfo: {
+          offset: imported.offset ?? 0,
+          limit: imported.page_size ?? features.length,
+          hasMore: imported.has_more ?? imported.truncated ?? false,
+          expression: imported.filter_expression ?? "",
+          warning: imported.pagination_warning,
+        },
       });
       return;
     }
-    await selectSourceFeature(features[0], label, binding, fields);
+    if (loadSelectedRoutes(features, label, fields, binding))
+      await selectSourceFeature(features[0], label, binding, fields);
+  }
+  function loadSelectedRoutes(
+    features: RouteFeature[],
+    label: string,
+    fields: Field[],
+    binding?: SourceBinding,
+  ) {
+    try {
+      const { collection, bounds } = routeSourceCollection(features);
+      update((current) => ({
+        ...current,
+        vector_basemaps: [
+          ...((current.vector_basemaps as any[]) ?? []),
+          {
+            id: makeId(),
+            kind: "route-source",
+            label: `${label} · ${features.length} 条路线`,
+            source_label: label,
+            collection,
+            fields,
+            binding: binding ?? null,
+            visible: true,
+          },
+        ],
+      }));
+      setRouteChoices(null);
+      setToolMode("pan");
+      fitBounds(mapRef.current, bounds);
+      setStatus(
+        `已加载 ${features.length} 条源路线到地图；单击路线可设为当前参考线。`,
+        "ok",
+      );
+      return true;
+    } catch (error) {
+      setStatus(errorMessage(error), "error");
+      return false;
+    }
   }
   async function selectSourceFeature(
     feature: any,
@@ -1613,17 +1756,42 @@ export function App() {
     }
   }
   async function importRoute() {
+    if (sourceReadingRef.current) return;
+    sourceReadingRef.current = true;
+    setSourceReading(true);
     try {
       if (isTauri()) {
         const path = await chooseFile([
           {
             name: "矢量数据",
-            extensions: ["geojson", "json", "gpkg", "shp", "kml"],
+            extensions: [
+              "geojson",
+              "json",
+              "gpkg",
+              "shp",
+              "kml",
+              "sqlite",
+              "sqlite3",
+              "db",
+            ],
           },
         ]);
         if (!path) return;
-        const imported = await readVectorFile(path);
-        if (imported) await acceptVector(imported, path);
+        const layerName = await chooseVectorLayer(path);
+        if (layerName === null) return;
+        const source: RouteDataSource = {
+          type: "file",
+          path,
+          layer_name: layerName,
+        };
+        const imported = await readSourcePage(source, {
+          expression: "",
+          offset: 0,
+          limit: 500,
+        });
+        const loadPage: RoutePageLoad = (options) =>
+          readSourcePage(source, options);
+        await acceptVector(imported, path, undefined, loadPage);
       } else {
         const file = await browserOpenFile(".geojson,.json");
         if (!file) return;
@@ -1638,6 +1806,9 @@ export function App() {
       }
     } catch (error) {
       setStatus(errorMessage(error), "error");
+    } finally {
+      sourceReadingRef.current = false;
+      setSourceReading(false);
     }
   }
   async function importVectorBackground() {
@@ -2492,6 +2663,7 @@ export function App() {
         {
           label: "连接远程数据…",
           run: () => {
+            setSourceEntry("connection");
             setPanel("data");
             setShowLeft(true);
             setSourceOpen(true);
@@ -2807,7 +2979,6 @@ export function App() {
             <DataPanel
               project={project}
               status={status}
-              importRoute={importRoute}
               importRaster={importRaster}
               onFieldMap={(field) => {
                 setMappingField(field);
@@ -2857,14 +3028,71 @@ export function App() {
                   open={sourceOpen}
                   onToggle={(event) => setSourceOpen(event.currentTarget.open)}
                 >
-                  <summary>数据源连接</summary>
-                  <DataSourceTools
-                    onImport={(result, label, binding) => {
-                      void acceptVector(result, label, binding).catch((error) =>
-                        setStatus(errorMessage(error), "error"),
-                      );
-                    }}
-                  />
+                  <summary>路线数据</summary>
+                  <div
+                    className="source-entry-tabs"
+                    role="group"
+                    aria-label="路线数据来源"
+                  >
+                    <button
+                      type="button"
+                      className="button outline"
+                      aria-pressed={sourceEntry === "file"}
+                      disabled={sourceReading}
+                      onClick={() => setSourceEntry("file")}
+                    >
+                      文件
+                    </button>
+                    <button
+                      type="button"
+                      className="button outline"
+                      aria-pressed={sourceEntry === "connection"}
+                      disabled={sourceReading}
+                      onClick={() => setSourceEntry("connection")}
+                    >
+                      连接
+                    </button>
+                  </div>
+                  {sourceEntry === "file" ? (
+                    <div className="source-file-entry">
+                      <p>
+                        本地矢量文件、GeoPackage 可直接查询，无需数据库服务。
+                      </p>
+                      <button
+                        className="button primary full"
+                        onClick={() => void importRoute()}
+                        disabled={sourceReading}
+                        aria-label="导入本地路线"
+                      >
+                        <FolderOpen size={15} />
+                        {sourceReading ? "正在读取图层…" : "打开路线文件"}
+                      </button>
+                    </div>
+                  ) : (
+                    <DataSourceTools
+                      getMapBounds={() => {
+                        const bounds = mapRef.current?.getBounds();
+                        return bounds
+                          ? [
+                              bounds.getWest(),
+                              bounds.getSouth(),
+                              bounds.getEast(),
+                              bounds.getNorth(),
+                            ]
+                          : null;
+                      }}
+                      onImport={(result, label, binding, loadPage) => {
+                        void acceptVector(
+                          result,
+                          label,
+                          binding,
+                          loadPage,
+                        ).catch((error) =>
+                          setStatus(errorMessage(error), "error"),
+                        );
+                      }}
+                    />
+                  )}
                 </details>
               }
               extras={
@@ -3657,16 +3885,30 @@ export function App() {
       )}
       {routeChoices && (
         <Modal
-          title={`选择路线 · ${routeChoices.features.length} 条`}
+          title={
+            routeChoices.loadPage
+              ? "选择路线 · 数据源分批"
+              : `选择路线 · ${routeChoices.features.length} 条`
+          }
           onCancel={() => setRouteChoices(null)}
         >
           <RouteFeatureSelector
             key={routeChoices.revision}
             features={routeChoices.features}
             fields={routeChoices.fields}
+            capabilities={routeChoices.capabilities}
+            sourceLabel={routeChoices.label}
+            loadPage={routeChoices.loadPage}
+            pageInfo={routeChoices.pageInfo}
             onCancel={() => setRouteChoices(null)}
             onRead={(features) => {
-              if (features.length === 1) {
+              const loaded = loadSelectedRoutes(
+                features,
+                routeChoices.label,
+                routeChoices.fields,
+                routeChoices.binding,
+              );
+              if (loaded && features.length === 1) {
                 void selectSourceFeature(
                   features[0],
                   routeChoices.label,
@@ -3675,16 +3917,6 @@ export function App() {
                 );
                 return;
               }
-              setRouteChoices({
-                ...routeChoices,
-                features,
-                fields: routeChoices.fields,
-                revision: ++routeChoiceRevision.current,
-              });
-              setStatus(
-                `已将 ${features.length} 条路线带入选择集；请从集合中勾选一条作为当前参考线。`,
-                "ok",
-              );
             }}
           />
         </Modal>
@@ -3858,7 +4090,6 @@ export function App() {
 function DataPanel({
   project,
   status,
-  importRoute,
   importRaster,
   onFieldMap,
   onNullFallback,
@@ -3868,7 +4099,6 @@ function DataPanel({
 }: {
   project: RoadProject;
   status: Status;
-  importRoute: () => void;
   importRaster: () => void;
   onFieldMap: (field: string) => void;
   onNullFallback: (enabled: boolean) => void;
@@ -3882,19 +4112,11 @@ function DataPanel({
       {extras}
       <section className="section-block">
         <div className="section-head">
-          <h3>其他输入方式</h3>
+          <h3>影像与人工输入</h3>
           <span className="count-tag">{project.crs}</span>
         </div>
 
         <div className="data-secondary-actions">
-          <button
-            className="button outline"
-            onClick={importRoute}
-            aria-label="导入本地路线"
-          >
-            <Upload size={15} />
-            本地路线文件
-          </button>
           <button className="button outline" onClick={importRaster}>
             <Plus size={15} />
             添加栅格

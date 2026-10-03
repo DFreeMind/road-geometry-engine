@@ -38,6 +38,7 @@ import {
   type SourceLayer,
   type SourceBinding,
 } from "./connections";
+import { isPageable, readSourcePage, sourceCapabilities } from "./sourceAccess";
 export type Field =
   | string
   | {
@@ -721,8 +722,21 @@ function ConnectionEditor({
 
 export function DataSourceTools({
   onImport,
+  getMapBounds,
 }: {
-  onImport: (result: any, label: string, binding?: SourceBinding) => void;
+  onImport: (
+    result: any,
+    label: string,
+    binding?: SourceBinding,
+    loadPage?: (options: {
+      expression: string;
+      offset: number;
+      limit: number;
+    }) => Promise<any>,
+  ) => void;
+  getMapBounds?: () =>
+    | [west: number, south: number, east: number, north: number]
+    | null;
 }) {
   const [status, setStatus] = useState("");
   const [connections, setConnections] = useState<SourceConnection[]>(() => {
@@ -747,6 +761,10 @@ export function DataSourceTools({
   >({});
   const [browsing, setBrowsing] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [connectionActionsOpen, setConnectionActionsOpen] = useState(false);
+  const [filterExpression, setFilterExpression] = useState("");
+  const [pageSize, setPageSize] = useState(500);
+  const [useMapBounds, setUseMapBounds] = useState(false);
   const [manager, setManager] = useState(false);
   const [edit, setEdit] = useState<{
     connection?: SourceConnection;
@@ -776,6 +794,8 @@ export function DataSourceTools({
       !needsPassword(current) ||
       current.rememberPassword === false
     ) {
+      if (current && needsPassword(current) && credential === undefined)
+        setConnectionActionsOpen(true);
       setRestoringPassword(false);
       return;
     }
@@ -791,10 +811,15 @@ export function DataSourceTools({
           connectionSessions.set(current, stored);
           setPassword(stored);
           setShowAuthentication(false);
+        } else if (credential === undefined) {
+          setConnectionActionsOpen(true);
         }
       })
       .catch((error) => {
-        if (active) setStatus(`无法读取保存的密码：${String(error)}`);
+        if (active) {
+          setConnectionActionsOpen(true);
+          setStatus(`无法读取保存的密码：${String(error)}`);
+        }
       })
       .finally(() => {
         if (active) setRestoringPassword(false);
@@ -806,6 +831,18 @@ export function DataSourceTools({
   const layer =
     current?.layers.find((item) => item.id === selectedLayer) ??
     current?.layers[0];
+  const source = current
+    ? {
+        type: "connection" as const,
+        connection: {
+          kind: current.kind,
+          ...current.config,
+          ...(layer ?? {}),
+          password,
+        },
+      }
+    : null;
+  const capabilities = source ? sourceCapabilities(source) : null;
   useEffect(() => {
     const refresh = () => {
       try {
@@ -860,7 +897,14 @@ export function DataSourceTools({
     );
     setStatus("");
     setCatalogOpen(false);
+    setFilterExpression("");
+    setUseMapBounds(false);
     setDeleting(null);
+  }
+  function selectLayer(layerId: string) {
+    setSelectedLayer(layerId);
+    setFilterExpression("");
+    setUseMapBounds(false);
   }
   async function start(
     connection?: SourceConnection,
@@ -1036,6 +1080,7 @@ export function DataSourceTools({
       return next;
     });
     setStatus("正在连接并读取空间图层目录…");
+    setConnectionActionsOpen(true);
     try {
       const result = await invoke<SourceCatalog>("list_remote_layers", {
         connection: { kind: connection.kind, ...connection.config, password },
@@ -1076,7 +1121,7 @@ export function DataSourceTools({
         (item) => catalogLayerKey(item) === catalogLayerKey(target),
       );
       if (existing) {
-        setSelectedLayer(existing.id);
+        selectLayer(existing.id);
         setCatalogOpen(false);
         setStatus(`已选择现有路线图层 ${existing.name}。`);
         return;
@@ -1086,7 +1131,7 @@ export function DataSourceTools({
       persist(
         connections.map((item) => (item.id === current.id ? changed : item)),
       );
-      setSelectedLayer(added.id);
+      selectLayer(added.id);
       setCatalogOpen(false);
       setStatus(`已添加 ${added.name}；读取后配置此图层的字段映射。`);
     } catch (error) {
@@ -1098,24 +1143,53 @@ export function DataSourceTools({
     setBusy(true);
     setStatus("");
     try {
-      const imported: any = await invoke("import_remote_vector", {
-        connection: {
-          kind: current.kind,
-          ...current.config,
-          ...layer,
-          password,
-        },
+      const bbox = useMapBounds ? (getMapBounds?.() ?? null) : null;
+      if (!source || !capabilities) return;
+      const pageBounds = bbox
+        ? ([...bbox] as [number, number, number, number])
+        : undefined;
+      const imported: any = await readSourcePage(source, {
+        expression: capabilities.attribute_filter ? filterExpression : "",
+        offset: 0,
+        limit: pageSize,
+        ...(capabilities.spatial_filter && pageBounds
+          ? { bbox: pageBounds }
+          : {}),
       });
+      const binding = bindingFor(current, layer);
+      const loadPage = async (options: {
+        expression: string;
+        offset: number;
+        limit: number;
+      }) => {
+        return readSourcePage(source, {
+          ...options,
+          expression: capabilities.attribute_filter ? options.expression : "",
+          ...(capabilities.spatial_filter && pageBounds
+            ? { bbox: pageBounds }
+            : {}),
+        });
+      };
       onImport(
         imported,
-        bindingFor(current, layer).label,
-        bindingFor(current, layer),
+        binding.label,
+        binding,
+        isPageable(imported.capabilities) ? loadPage : undefined,
       );
       connectionSessions.set(current, password);
       const credentialWarning = await rememberAuthenticated(current, password);
       setShowAuthentication(false);
+      const count =
+        imported.collection?.features?.length ?? imported.feature_count ?? 0;
+      const more = Boolean(imported.has_more || imported.truncated);
+      const orderWarning =
+        isPageable(imported.capabilities) && !imported.capabilities.stable_order
+          ? "当前图层未确认稳定排序，继续翻页时可能出现重复或遗漏。"
+          : "";
+      setConnectionActionsOpen(false);
+      setCatalogOpen(false);
       setStatus(
-        `已读取 ${imported.collection?.features?.length ?? imported.feature_count ?? 0} 个要素${imported.truncated ? "（已截取）" : ""}${credentialWarning}`,
+        `已取得 ${count} 条候选，请在属性表选择后加载地图。${more ? (isPageable(imported.capabilities) ? `本批 ${count} 条，仍有更多；可继续翻页或缩小来源条件。` : "已达到本批快照上限；此数据源不支持翻页或来源条件筛选。") : ""}${orderWarning}${credentialWarning}`,
       );
     } catch (error) {
       setStatus(
@@ -1178,22 +1252,6 @@ export function DataSourceTools({
       className="source-tools source-browser"
       aria-label="连接路线数据源"
     >
-      <div className="source-browser__heading">
-        <div>
-          <Database size={18} />
-          <strong>{connections.length} 个已保存连接</strong>
-        </div>
-        <button
-          type="button"
-          ref={trigger}
-          disabled={busy || restoringPassword}
-          onClick={() => start(current)}
-          aria-label="管理数据连接"
-        >
-          <Settings2 size={15} />
-          管理
-        </button>
-      </div>
       {connections.length ? (
         <>
           <label>
@@ -1216,91 +1274,17 @@ export function DataSourceTools({
               ))}
             </select>
           </label>
-          {current && needsPassword(current) && (
-            <div className="source-browser__authentication">
-              {!showAuthentication && !restoringPassword && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowAuthentication(true)}
-                >
-                  更换认证
-                </button>
-              )}
-              {showAuthentication && (
-                <>
-                  <label>
-                    连接密码
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      disabled={busy || restoringPassword}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
-                    <small>无需密码的认证方式可留空。</small>
-                  </label>
-                  <label className="source-tools__remember">
-                    <input
-                      type="checkbox"
-                      checked={current.rememberPassword !== false}
-                      disabled={busy || restoringPassword}
-                      onChange={(event) =>
-                        void changeRememberPassword(event.target.checked)
-                      }
-                    />
-                    保存密码，下次启动自动使用
-                  </label>
-                  {passwordSaved && (
-                    <button
-                      type="button"
-                      disabled={busy || restoringPassword}
-                      onClick={() => void changeRememberPassword(false)}
-                    >
-                      清除保存密码
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <button
-            className={catalog ? "button outline" : "source-tools__primary"}
-            disabled={busy || restoringPassword || !current}
-            onClick={() => void browse()}
-          >
-            {browsing
-              ? "正在浏览…"
-              : catalog
-                ? "刷新空间图层目录"
-                : "连接并浏览空间表"}
-          </button>
-          {catalog && (
-            <details
-              className="source-browser__directory"
-              open={catalogOpen}
-              onToggle={(event) => setCatalogOpen(event.currentTarget.open)}
-            >
-              <summary>空间图层目录</summary>
-              <fieldset className="source-browser__catalog" disabled={busy}>
-                <SourceCatalogPicker
-                  catalog={catalog}
-                  kind={current?.kind ?? "postgis"}
-                  defaultSchema={String(current?.config.default_schema ?? "")}
-                  onAdd={addCatalogLayer}
-                />
-              </fieldset>
-            </details>
-          )}
           <label>
             已添加的路线图层
             <select
               aria-label="选择数据源图层"
-              disabled={busy || !layer}
+              disabled={busy || !current?.layers.length}
               value={layer?.id ?? ""}
-              onChange={(event) => setSelectedLayer(event.target.value)}
+              onChange={(event) => selectLayer(event.target.value)}
             >
-              {!layer && <option value="">尚未添加路线图层</option>}
+              {!current?.layers.length && (
+                <option value="">尚未添加路线图层</option>
+              )}
               {current?.layers.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -1309,16 +1293,192 @@ export function DataSourceTools({
               ))}
             </select>
           </label>
+          {layer && capabilities && (
+            <div
+              className="source-browser__capability"
+              aria-label="数据源读取能力"
+            >
+              {capabilities.query_scope === "source"
+                ? capabilities.native_dialect === "postgres"
+                  ? "数据库查询"
+                  : "本地查询"
+                : "有界快照"}
+            </div>
+          )}
+          {layer &&
+            capabilities &&
+            (capabilities.attribute_filter ||
+              capabilities.pagination ||
+              capabilities.spatial_filter) && (
+              <details className="source-browser__read-range">
+                <summary>读取范围</summary>
+                <div className="source-browser__read-range-fields">
+                  {capabilities.attribute_filter && (
+                    <label>
+                      筛选条件
+                      <input
+                        value={filterExpression}
+                        placeholder="例如: route_type = '高速公路'"
+                        disabled={busy}
+                        onChange={(event) =>
+                          setFilterExpression(event.target.value)
+                        }
+                      />
+                      <small>按数据源支持的表达式筛选属性。</small>
+                    </label>
+                  )}
+                  {capabilities.pagination && (
+                    <label>
+                      每批读取数量
+                      <select
+                        value={pageSize}
+                        disabled={busy}
+                        onChange={(event) =>
+                          setPageSize(Number(event.target.value))
+                        }
+                      >
+                        {[100, 500, 2000, 10000].map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {capabilities.spatial_filter && (
+                    <label className="source-browser__bounds-toggle">
+                      <input
+                        type="checkbox"
+                        checked={useMapBounds}
+                        disabled={busy || !getMapBounds}
+                        onChange={(event) =>
+                          setUseMapBounds(event.target.checked)
+                        }
+                      />
+                      仅读取当前地图范围
+                      {!getMapBounds && <small>当前未提供地图范围。</small>}
+                    </label>
+                  )}
+                </div>
+              </details>
+            )}
+          {layer && capabilities?.query_scope === "snapshot" && (
+            <p className="source-browser__snapshot-note" role="note">
+              此来源仅读取最多 {pageSize}{" "}
+              条有界快照；不支持来源条件筛选、地图范围筛选或翻页。
+            </p>
+          )}
           <button
             className="source-tools__primary"
-            disabled={busy || restoringPassword || !layer}
-            onClick={() => void read()}
+            disabled={busy || restoringPassword || !current}
+            onClick={() => (layer ? void read() : void browse())}
           >
-            {busy && !browsing ? "读取中…" : "读取所选路线图层"}
+            {busy
+              ? browsing
+                ? "正在连接…"
+                : "读取中…"
+              : layer
+                ? "打开路线数据"
+                : "浏览空间目录"}
           </button>
-          <details className="source-browser__more">
-            <summary>其他操作</summary>
+          <details
+            className="source-browser__operations"
+            open={connectionActionsOpen}
+            onToggle={(event) =>
+              setConnectionActionsOpen(event.currentTarget.open)
+            }
+          >
+            <summary>连接操作</summary>
             <button
+              type="button"
+              ref={trigger}
+              disabled={busy || restoringPassword}
+              onClick={() => void start(current)}
+            >
+              <Settings2 size={15} />
+              管理数据连接
+            </button>
+            {current && needsPassword(current) && (
+              <div className="source-browser__authentication">
+                {!showAuthentication && !restoringPassword && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setShowAuthentication(true);
+                      setConnectionActionsOpen(true);
+                    }}
+                  >
+                    更换认证
+                  </button>
+                )}
+                {showAuthentication && (
+                  <>
+                    <label>
+                      连接密码
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={password}
+                        disabled={busy || restoringPassword}
+                        onChange={(event) => setPassword(event.target.value)}
+                      />
+                      <small>无需密码的认证方式可留空。</small>
+                    </label>
+                    <label className="source-tools__remember">
+                      <input
+                        type="checkbox"
+                        checked={current.rememberPassword !== false}
+                        disabled={busy || restoringPassword}
+                        onChange={(event) =>
+                          void changeRememberPassword(event.target.checked)
+                        }
+                      />
+                      保存密码，下次启动自动使用
+                    </label>
+                    {passwordSaved && (
+                      <button
+                        type="button"
+                        disabled={busy || restoringPassword}
+                        onClick={() => void changeRememberPassword(false)}
+                      >
+                        清除保存密码
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            <button
+              className="button outline"
+              disabled={busy || restoringPassword || !current}
+              onClick={() => void browse()}
+            >
+              {browsing
+                ? "正在浏览…"
+                : catalog
+                  ? "刷新空间图层目录"
+                  : "浏览空间目录"}
+            </button>
+            {catalog && (
+              <details
+                className="source-browser__directory"
+                open={catalogOpen}
+                onToggle={(event) => setCatalogOpen(event.currentTarget.open)}
+              >
+                <summary>空间图层目录</summary>
+                <fieldset className="source-browser__catalog" disabled={busy}>
+                  <SourceCatalogPicker
+                    catalog={catalog}
+                    kind={current?.kind ?? "postgis"}
+                    defaultSchema={String(current?.config.default_schema ?? "")}
+                    onAdd={addCatalogLayer}
+                  />
+                </fieldset>
+              </details>
+            )}
+            <button
+              type="button"
               className="source-browser__manual"
               disabled={busy || restoringPassword}
               onClick={() => start(current, undefined, true)}

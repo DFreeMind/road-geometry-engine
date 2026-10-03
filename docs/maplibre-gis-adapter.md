@@ -17,6 +17,7 @@ gis/
 
 ## Tauri 命令
 
+- `query_vector_data(source, query)` 是路线数据的统一只读入口，文件、GeoPackage/SQLite 连接和 PostGIS 共用查询契约。安全通用表达式、WGS84 bbox、LIMIT+1 与 offset 在适配层执行，默认每批 500 条、最多 10,000 条；其他连接返回明确的有界快照能力，不静默忽略不支持的查询。字段、注释（来源提供时）、原始 FID、来源 CRS 与能力随结果返回。文件中的 SQLite 方言查询不等于已有索引，也不保证深分页速度。详见 [改造计划](source-neutral-data-access-plan.md)。
 - `import_vector(path)` 支持 GeoJSON、SHP、GPKG，读取首层并通过 OGR 转为 WGS84 GeoJSON。最多返回 2,000 个要素；`feature_count` 为源层元数据的数量（未知时为实际读取数），`truncated` 标明结果是否截断。非 GeoJSON 缺少 CRS 时拒绝导入；没有显式 CRS 的标准 GeoJSON 按 WGS84 解释。OGR 和 JSON 输出有界，过大的几何会失败并保留源文件。
 - `import_raster(path)` 支持已配准 GeoTIFF、VRT、IMG。仅读取 GDAL 元数据，要求 CRS 和可计算的 WGS84 范围，登记最多 32 个栅格源；不改写源栅格，也不生成全图重投影副本。
 - `raster_tile(id, z, x, y)` 将 XYZ 瓦片范围转换为 EPSG:3857 窗口，以 `gdalwarp` 只生成 256×256 的局部 GeoTIFF，再输出带透明度的 PNG。缩放级别最高 22、同时最多两个瓦片进程，GDAL warp 工作内存和全局缓存各限制为 64 MiB，内存缓存最多 128 张瓦片。该缓存是会话级临时缓存。
@@ -30,4 +31,4 @@ gis/
 
 `import_vector.collection` 是 WGS84 GeoJSON，适合与 MapLibre 地图显示坐标配合。业务几何引擎的内部投影米制坐标应在 `export_geopackage.layers[].crs` 中明确写入其 CRS，不能把投影坐标标成 WGS84。对内部坐标执行地图显示时，前端读取 `crs_definition` 的 PROJ 定义后通过 proj4 转到地图显示坐标系。影像 bounds 的顺序是 `[west, south, east, north]`，坐标为 WGS84。
 
-瓦片接口仅接受标准 XYZ / Web Mercator 地址；图层透明度、NoData、色彩拉伸和金字塔策略沿用 GDAL 默认值。目前不做影像重采样策略选择、矢量分页或任意图层选择；矢量只读首层，超出 2,000 条需由后续分页接口承接。GDAL 子进程执行不代表已完成独立安装包的完整原生依赖验收。
+瓦片接口仅接受标准 XYZ / Web Mercator 地址；图层透明度、NoData、色彩拉伸和金字塔策略沿用 GDAL 默认值。目前不做影像重采样策略选择。路线入口可选择图层并分批查询，矢量底图仍使用兼容的有界导入接口；没有固定事务快照、键集分页或矢量瓦片。GDAL 子进程执行不代表已完成独立安装包的完整原生依赖验收。

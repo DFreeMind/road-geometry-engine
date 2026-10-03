@@ -46,15 +46,46 @@ const waitFor = async (expression, seconds = 30) => {
 };
 const invoke = (name, args = {}) => evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`);
 const click = async selector => {
-  if (selector === '[aria-label="管理数据连接"]')
-    await waitFor(`!document.querySelector(${JSON.stringify(selector)}).disabled`);
+  if (selector === '[aria-label="导入本地路线"]') await ensureSourceEntry('file');
+  if (selector === '[aria-label="管理数据连接"]') {
+    await clickManageConnections();
+    return;
+  }
   await evaluate(`(()=>{const button=document.querySelector(${JSON.stringify(selector)});if(!button)throw new Error('找不到按钮');button.click();})()`);
-  if (selector === '[aria-label="管理数据连接"]')
-    await waitFor('Boolean(document.querySelector(".connection-manager[open]"))');
 };
 const clickText = async text => {
-  await waitFor(`(()=>{const b=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(text)});return b&&!b.disabled&&!b.closest('[inert]')})()`);
-  await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(text)});if(!button)throw new Error('找不到按钮 '+${JSON.stringify(text)});button.click();})()`);
+  const currentText = {
+    '连接并浏览空间表': '浏览空间目录',
+    '读取所选路线图层': '打开路线数据',
+    'SQL 条件': '表达式筛选',
+  }[text] ?? text;
+  if (['打开路线数据', '浏览空间目录'].includes(currentText)) await ensureSourceEntry('connection');
+  if (['管理数据连接', '更换认证', '刷新空间图层目录'].includes(currentText))
+    await openConnectionOperations();
+  // 检查和点击在同一轮 DOM 读取中完成，避免认证恢复重渲染使按钮引用过期。
+  await waitFor(`(()=>{const b=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(currentText)});if(!b||b.disabled||b.closest('[inert]'))return false;b.click();return true;})()`);
+};
+const openConnectionOperations = async () => {
+  await ensureSourceEntry('connection');
+  await waitFor('Boolean(document.querySelector(".source-browser__operations"))');
+  await evaluate('document.querySelector(".source-browser__operations").open=true');
+};
+const clickManageConnections = async () => {
+  await ensureSourceEntry('connection');
+  const hasConnections = await evaluate('Boolean(document.querySelector(".source-browser__operations"))');
+  if (hasConnections) {
+    await openConnectionOperations();
+    await clickText('管理数据连接');
+  } else {
+    await clickText('新建连接');
+  }
+  await waitFor('Boolean(document.querySelector(".connection-manager[open]"))');
+};
+const ensureSourceEntry = async mode => {
+  if (await evaluate('Boolean(document.querySelector(".source-entry-tabs"))')) {
+    await evaluate(`(()=>{const buttons=document.querySelectorAll('.source-entry-tabs button');buttons[${mode==='file'?0:1}].click();})()`);
+    await waitFor(mode==='file'?'Boolean(document.querySelector(".source-file-entry"))':'Boolean(document.querySelector(".source-browser"))');
+  }
 };
 const queueDialog = (type, file) => evaluate(`window.__ROAD_WORKBENCH__.dialogs.${type}.push(${JSON.stringify(file)})`);
 const screenshot = async name => { const result = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await fs.writeFile(path.join(outputDirectory, name), Buffer.from(result.data, 'base64')); };
@@ -72,6 +103,41 @@ try {
   assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getMap().getLayer("road-route-line"))'), '参考线图层缺失');
   const catalog = await invoke('facilities_catalog');
   assert.equal(catalog.entries.length, 66); check('原生设施目录', { entries: catalog.entries.length });
+  // 文件和本地数据库使用同一查询命令，不启动任何空间数据库服务。
+  const neutralFile=path.join(outputDirectory,'neutral-source.geojson');
+  const neutralGpkg=path.join(outputDirectory,'neutral-source.gpkg');
+  const neutralFeatures=Array.from({length:3000},(_,index)=>({type:'Feature',id:10001+index,properties:{id:index+1,route_id:`G10-${String(index+1).padStart(4,'0')}`,note:`路线${index+1}`,nullable:null,__road_source_fid:'业务字段'},geometry:{type:'LineString',coordinates:[[116.3+(index+1)*0.00001,39.9],[116.3+(index+1)*0.00001,39.901]]}}));
+  await fs.writeFile(neutralFile,JSON.stringify({type:'FeatureCollection',name:'neutral_routes',features:neutralFeatures}));
+  const projectedFeatures=neutralFeatures.map((feature,index)=>({...feature,geometry:{type:'LineString',coordinates:[[448001+index,4420000],[448001+index,4420100]]}}));
+  await invoke('export_geopackage',{path:neutralGpkg,layers:[{name:'neutral_routes',crs:'EPSG:32650',collection:{type:'FeatureCollection',features:projectedFeatures}}]});
+  const neutralSources=[{type:'file',path:neutralFile,layer_name:'neutral_routes'},{type:'file',path:neutralGpkg,layer_name:'neutral_routes'},{type:'connection',connection:{kind:'gpkg',path:neutralGpkg,table:'neutral_routes'} }];
+  if(process.env.ROAD_QA_SQLITE_PATH) neutralSources.push({type:'file',path:process.env.ROAD_QA_SQLITE_PATH,layer_name:'roads'},{type:'connection',connection:{kind:'sqlite',path:process.env.ROAD_QA_SQLITE_PATH,table:'roads'}});
+  const neutralFilter="left(route_id, 3) = 'G10' AND right(route_id, 2) IN ('01','02')";
+  for(const source of neutralSources){
+    const pages=[];
+    for(const offset of [0,25,50]) pages.push(await invoke('query_vector_data',{source,query:{expression:neutralFilter,offset,limit:25}}));
+    assert.deepEqual(pages.map(result=>result.collection.features.length),[25,25,10]);
+    assert.deepEqual(pages.map(result=>result.has_more),[true,true,false]);
+    const rows=pages.flatMap(result=>result.collection.features);
+    assert.equal(new Set(rows.map(feature=>feature.properties.id)).size,60);
+    assert.equal(rows.at(-1).properties.id,2902);
+    assert(rows.every(feature=>feature.properties.__road_source_fid==='业务字段'&&Object.hasOwn(feature.properties,'nullable')));
+    assert(pages.every(result=>result.capabilities.query_scope==='source'&&result.capabilities.pagination&&result.fields.some(field=>field.name==='note')));
+    const later=await invoke('query_vector_data',{source,query:{expression:'',offset:2500,limit:1}});
+    assert.equal(later.collection.features[0].properties.id,2501);
+    if(source.path===neutralFile) assert.equal(later.collection.features[0].id,12501,'GeoJSON原始Feature.id不能被分页重排');
+    const [x,y]=later.collection.features[0].geometry.coordinates[0];
+    assert(Math.abs(x)<=180&&Math.abs(y)<=90,'本地投影数据输出必须为WGS84');
+    const local=await invoke('query_vector_data',{source,query:{expression:'',offset:0,limit:1,bbox:[x-0.000001,y-0.000001,x+0.000001,y+0.000001]}});
+    assert.equal(local.collection.features[0]?.properties.id,2501,'空间范围必须在LIMIT之前筛选，不能仅过滤首批');
+    const unicode=await invoke('query_vector_data',{source,query:{expression:"left(note, 2) = '路线' AND right(note, 4) = '2501'",offset:0,limit:10}});
+    assert.equal(unicode.collection.features[0]?.properties.id,2501);
+    const negative=await invoke('query_vector_data',{source,query:{expression:"left(route_id, -1) = 'G10-250' AND right(route_id, -7) = '1'",offset:0,limit:10}});
+    assert.equal(negative.collection.features[0]?.properties.id,2501);
+    let rejected='';try{await invoke('query_vector_data',{source,query:{expression:"route_id='x'; DELETE FROM neutral_routes",offset:0,limit:25}});}catch(error){rejected=String(error);}
+    assert(rejected,'文件来源也必须拒绝SQL注入');
+  }
+  check('统一来源命令：GeoJSON和投影GeoPackage文件/连接离线筛选、跨批、原始字段FID、bbox及注入拒绝',{rows:3000,sources:neutralSources.length});
   await screenshot('01-workspace.png');
   const gesturePoint = await evaluate('(()=>{const b=document.querySelector(".maplibregl-canvas").getBoundingClientRect();return {x:b.x+b.width*.6,y:b.y+b.height*.55};})()');
   const viewBefore = await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
@@ -396,7 +462,12 @@ try {
   assert(!(await evaluate('localStorage.getItem("road-data-connections-v1")')).includes('qa-never-store'));
   assert.equal(await evaluate("JSON.parse(localStorage.getItem('road-data-connections-v1')).connections[0].layers.length"),0);
   assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '保存连接后不重复展开会话密码');
-  check('数据库级连接无需填写路线表',true);
+  assert.equal(await evaluate("document.querySelector('.source-browser__operations').open"),false, '连接操作默认折叠');
+  assert.equal(await evaluate("[...document.querySelectorAll('.source-browser > button')].some(b=>b.innerText.trim()==='浏览空间目录')"),true, '无已添加图层时主按钮浏览空间目录');
+  await openConnectionOperations();
+  assert(await evaluate("[...document.querySelectorAll('.source-browser__operations button')].some(b=>b.innerText.trim()==='管理数据连接')"));
+  await evaluate('document.querySelector(".source-browser__operations").open=false');
+  check('数据库级连接无需填写路线表，连接操作折叠且主按钮浏览目录',true);
   await click('[aria-label="管理数据连接"]');
   assert(await evaluate("[...document.querySelectorAll('.connection-manager label')].find(l=>l.textContent.trim().startsWith('密码')).querySelector('input').value === 'qa-never-store'"));check('连接管理复用密码且不写入公开配置',true);
   await evaluate("(()=>{const d=document.querySelector('.connection-manager details');d.open=true})()");
@@ -459,7 +530,7 @@ try {
   assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),2);
   await click('[aria-label="管理数据连接"]');await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
   await waitFor('!document.querySelector(".connection-manager")');
-  assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'),'管理数据连接');
+  assert.equal(await evaluate('document.activeElement.innerText.trim()'),'管理数据连接');
   check('多连接、新增Schema图层、复制删除、公开配置无密码和管理窗口焦点',true);
   await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择数据连接\"]');e.value=JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库').id;e.dispatchEvent(new Event('change',{bubbles:true}));})()");
   assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '切换回来复用原连接的会话认证');
@@ -503,13 +574,44 @@ try {
     await evaluate("document.querySelector('.source-browser__directory').open=true");
     await clickText('添加所选路线图层');assert.equal(await evaluate("document.querySelector('[aria-label=\"选择数据源图层\"]').options.length"),addedCount, '重复添加选择已有图层');
     check(`${kind}真实空间目录浏览、添加及重复图层去重`,true);
-    await clickText('读取所选路线图层');await waitFor(`window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes(${JSON.stringify(name)})`);
+    await clickText('读取所选路线图层');await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+    await click('[aria-label="选择第 1 条路线"]');await clickText('加载到地图（1）');
+    await waitFor(`window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes(${JSON.stringify(name)})`);
     assert((await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length'))>=2);
     assert(await evaluate("(()=>{const e=document.querySelector('.source-browser');return e.scrollWidth<=e.clientWidth+1;})()"), '长数据库路径不能撑宽窄侧栏');
     await screenshot(kind==='gpkg'?'33-gpkg-connection.png':'34-spatialite-connection.png');check(`${kind}文件空间数据库真实连接与UI读取`,true);
   }
   if(process.env.ROAD_QA_PG_CATALOG_DB){
     const pgConnection={kind:'postgis',host:'127.0.0.1',port:Number(process.env.ROAD_QA_PG_PORT),database:process.env.ROAD_QA_PG_CATALOG_DB,user:'qa_reader',password:'qa-session-only',sslmode:'disable'};
+    const pagedLayer={...pgConnection,schema:'design',table:'paged_roads',geometry_column:'geom'};
+    const pagedFilter="left(route_id, 3) = 'G10' AND right(route_id, 2) IN ('01', '02')";
+    const pagedReads=[];
+    for(const offset of [0,25,50]){
+      pagedReads.push(await invoke('import_remote_vector',{connection:{...pagedLayer,filter_expression:pagedFilter,read_limit:25,page_size:25,offset}}));
+    }
+    assert.deepEqual(pagedReads.map(result=>result.collection.features.length),[25,25,10]);
+    assert.deepEqual(pagedReads.map(result=>result.has_more),[true,true,false]);
+    assert.deepEqual(pagedReads.map(result=>result.offset),[0,25,50]);
+    assert(pagedReads.every(result=>result.page_size===25));
+    const pagedFeatures=pagedReads.flatMap(result=>result.collection.features);
+    const pagedIds=pagedFeatures.map(feature=>feature.properties.id);
+    assert.equal(new Set(pagedIds).size,60,'PostGIS翻页结果不得重复');
+    assert.equal(pagedIds.at(-1),2902,'PostGIS分页应读到筛选结果末尾');
+    assert(pagedFeatures.every(feature=>Object.hasOwn(feature.properties,'id')&&Object.hasOwn(feature.properties,'route_id')),'分页需保留全部业务字段');
+    const defaultPage=await invoke('import_remote_vector',{connection:pagedLayer});
+    assert.equal(defaultPage.collection.features.length,500,'PostGIS默认首批上限应为500');
+    assert.equal(defaultPage.page_size,500);
+    const offsetPage=await invoke('import_remote_vector',{connection:{...pagedLayer,offset:2000}});
+    assert.equal(offsetPage.collection.features.length,500,'offset 2000 应能读取后续批次');
+    assert.equal(offsetPage.collection.features[0].properties.id,2001);
+    const [firstLon,firstLat]=defaultPage.collection.features[0].geometry.coordinates[0];
+    const bboxPage=await invoke('import_remote_vector',{connection:{...pagedLayer,read_limit:500,bbox:[firstLon-0.000001,firstLat-0.000001,firstLon+0.000001,firstLat+0.000001]}});
+    assert(bboxPage.collection.features.length>0&&bboxPage.collection.features.length<500,'bbox 应将导入结果缩小到局部范围');
+    let injectionError='';
+    try { await invoke('import_remote_vector',{connection:{...pagedLayer,filter_expression:"route_id = 'G10-0001'; DROP TABLE design.paged_roads; --",read_limit:25}}); } catch(error) { injectionError=String(error); }
+    assert(injectionError,'SQL注入表达式必须被拒绝');
+    assert.equal((await invoke('import_remote_vector',{connection:{...pagedLayer,read_limit:1}})).collection.features.length,1,'拒绝注入后表仍可读取');
+    check('PostGIS服务端过滤、分批offset、默认上限、bbox及SQL注入拒绝',{pages:pagedReads.map(result=>result.collection.features.length),lastId:pagedIds.at(-1),bboxCount:bboxPage.collection.features.length});
     const pgCatalog=await invoke('list_remote_layers',{connection:pgConnection});
     assert(pgCatalog.schemas.includes('public') && pgCatalog.schemas.includes('empty_qa') && pgCatalog.schemas.includes('design.2026'));
     assert(!pgCatalog.schemas.includes('restricted_qa'));
@@ -544,10 +646,30 @@ try {
     await waitFor("document.querySelector('[aria-label=\"选择空间表\"]').options.length>=3");
     assert(await evaluate("[...document.querySelector('[aria-label=\"选择空间表\"]').options].every(o=>!o.value || JSON.parse(o.value)[1]!=='areas')"), '面表不作为路线候选');
     await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择空间表\"]');e.value=[...e.options].find(o=>o.value && JSON.parse(o.value)[1]==='roads' && JSON.parse(o.value)[2]==='geom').value;e.dispatchEvent(new Event('change',{bubbles:true}));})()");
-    await screenshot('37-postgis-schema-picker.png');await clickText('添加所选路线图层');await clickText('读取所选路线图层');
-    await waitFor("window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes('PostGIS 目录验证')");
+    await screenshot('37-postgis-schema-picker.png');await clickText('添加所选路线图层');await clickText('打开路线数据');
+    await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+    await clickText('全选筛选结果');
+    const pgSelectedCount=await evaluate('document.querySelectorAll(".route-feature-selector__table tbody input:checked").length');
+    await clickText(`加载到地图（${pgSelectedCount}）`);
+    await waitFor("window.__ROAD_WORKBENCH__.getProject().vector_basemaps?.some(layer=>layer.kind==='route-source')");
     assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '读取成功后继续复用当前会话认证');
     await screenshot('38-postgis-ready-to-read.png');
+    await clickManageConnections();await click('[aria-label="添加数据源图层"]');await fillConnection('Schema','design');await fillConnection('路线表','paged_roads');await clickText('保存路线图层');await waitFor('!document.querySelector(".connection-manager")');
+    await waitFor("[...document.querySelector('[aria-label=\"选择数据源图层\"]').options].some(option=>option.textContent.includes('paged_roads'))");
+    await clickText('打开路线数据');await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+    assert.equal(await evaluate('document.querySelectorAll(".route-feature-selector__table tbody tr").length'),50);
+    await click('[aria-label="选择第 1 条路线"]');
+    await clickText('下一批');
+    await waitFor('document.querySelector(".route-feature-selector")?.innerText.includes("偏移 500")');
+    await click('[aria-label="选择第 501 条路线"]');
+    await waitFor('document.querySelector(".route-feature-selector__toolbar").innerText.includes("已选 2 条")');
+    assert.equal(await evaluate('document.querySelectorAll(".route-feature-selector__table tbody input:checked").length'),1,'跨批切换后当前页只显示第501条选中');
+    await screenshot('38-postgis-batch-selection.png');
+    await clickText('加载到地图（2）');
+    await waitFor('!document.querySelector(".route-feature-selector")');
+    const crossBatchRoutes=await evaluate('window.__ROAD_WORKBENCH__.getProject().vector_basemaps.filter(layer=>layer.kind==="route-source").at(-1).collection.features.map(feature=>feature.properties.id)');
+    assert.deepEqual(crossBatchRoutes,[1,501],'跨批选择应同时保留第1和第501条原始要素');
+    check('PostGIS属性表跨批勾选并加载两条路线',{ids:crossBatchRoutes});
     await clickText('刷新空间图层目录');await waitFor("document.querySelector('.source-browser [role=status]')?.innerText.includes('连接成功')");
     assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"));
     await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择 Schema\"]');e.value='empty_qa';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
@@ -583,7 +705,7 @@ try {
   await clickText('数据'); await clickText('配置字段映射…');
   await waitFor('document.querySelector(".field-mapping") !== null'); check('完整路线与横断面字段映射入口',true);
   assert(await evaluate('!document.querySelector(".project-details").open'), '项目详情应默认折叠');
-  assert.equal(await evaluate('document.querySelectorAll(".data-panel > .section-block:not(.project-details) button").length'),3);
+  assert.equal(await evaluate('document.querySelectorAll(".data-panel > .section-block:not(.project-details) button").length'),2);
   await click('.project-details > summary');
   assert(await evaluate('document.querySelector(".project-details").innerText.includes("输入版本")'), '项目详情缺少原有元数据');
   await click('.project-details > summary');
@@ -634,6 +756,8 @@ try {
   await click('[aria-label="数据"]');await queueDialog('open',uiGpkgFile);await click('[aria-label="导入本地路线"]');
   await waitFor('document.querySelector(".workbench-dialog")?.innerText.includes("选择数据图层")');
   await evaluate(`[...document.querySelectorAll('.route-choice-list button')].find(b=>b.innerText.startsWith('参考线 ·')).click()`);
+  await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+  await click('[aria-label="选择第 1 条路线"]');await clickText('加载到地图（1）');
   await waitFor('String(window.__ROAD_WORKBENCH__.getProject().source_label).endsWith(" · 参考线")');
   assert.notEqual(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_mapping.route_id'),'missing_old_field');
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_binding'),null);
@@ -643,6 +767,79 @@ try {
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().output'),null);
   await click('[aria-label="撤销上一步"]');assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getProject().output)'));check('菜单清除成果可撤销恢复',true);
   const beforeMapping=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
+  // 离线文件同样支持源端筛选和跨批复选，不能依赖运行中的 PostGIS。
+  await queueDialog('open',neutralFile);await click('[aria-label="导入本地路线"]');
+  await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+  await click('[aria-label="选择第 1 条路线"]');
+  await clickText('下一批');await waitFor('document.querySelector(".route-feature-selector")?.innerText.includes("偏移 500")');
+  await click('[aria-label="选择第 501 条路线"]');
+  assert(await evaluate('document.querySelector(".route-feature-selector")?.innerText.includes("已选 2")'));
+  await command('Emulation.setDeviceMetricsOverride',{width:1024,height:600,deviceScaleFactor:1,mobile:false});
+  await waitFor('window.innerHeight===600');
+  assert(await evaluate(`(()=>{const d=document.querySelector('.workbench-dialog').getBoundingClientRect(),p=document.querySelector('.route-feature-selector__source-pager').getBoundingClientRect(),t=document.querySelector('.route-feature-selector__table-scroll').getBoundingClientRect(),n=document.querySelector('.route-feature-selector__pagination').getBoundingClientRect(),b=[...document.querySelectorAll('.route-feature-selector button')].find(b=>b.innerText==='加载到地图（2）').getBoundingClientRect();return p.top>=d.top&&p.bottom<=t.top+1&&t.height>=60&&t.bottom<=n.top+1&&n.bottom<=b.top+1&&b.bottom<=d.bottom&&d.bottom<=600;})()`), '600px窗口批次分页、属性表与确认不能互相覆盖');
+  await screenshot('44-neutral-small-window.png');
+  await command('Emulation.clearDeviceMetricsOverride');
+  await screenshot('44-neutral-offline-source.png');
+  await clickText('加载到地图（2）');
+  await waitFor('window.__ROAD_WORKBENCH__.getProject().vector_basemaps.some(l=>l.collection.features.length===2 && l.collection.features[1].properties.id===501)');
+  assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().vector_basemaps.some(l=>l.kind==="route-source" && l.fields.some(f=>f.name==="note"))'));
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(beforeMapping)})`);
+  check('本地文件统一属性表跨源批次复选并加载到地图',true);
+  await queueDialog('open',neutralFile);await click('[aria-label="导入本地路线"]');
+  await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+  await click('[aria-label="选择第 1 条路线"]');
+  await evaluate(`(()=>{const e=document.querySelector('[aria-label="数据源筛选条件"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,"left(route_id, 3) = 'G10' AND right(route_id, 4) = '2501'");e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await clickText('查询数据源');
+  await waitFor('document.querySelectorAll(".route-feature-selector__table tbody tr").length===1 && document.querySelector(".route-feature-selector__table tbody").innerText.includes("G10-2501")');
+  assert(await evaluate('[...document.querySelectorAll(".route-feature-selector button")].find(b=>b.innerText==="加载到地图（0）").disabled'), '更改来源条件必须清空旧选择');
+  await click('[aria-label="选择第 1 条路线"]');await clickText('加载到地图（1）');
+  await waitFor('window.__ROAD_WORKBENCH__.getProject().mapped_attributes?.id===2501');
+  assert((await evaluate('window.__ROAD_WORKBENCH__.getProject().source_fields')).some(f=>typeof f==='string'?f==='note':f.name==='note'));
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(beforeMapping)})`);
+  check('本地文件来源条件查询旧上限之外路线并清空旧选择、激活字段映射',true);
+  // 使用合成多字段路线验证属性表、列开关及 SQL 条件，不访问用户数据库。
+  const routeTableFixture=path.join(outputDirectory,'route-table.geojson');
+  const routeTableFeatures=Array.from({length:120},(_,i)=>({type:'Feature',properties:{route_id:`G10-${String(i).padStart(2,'0')}`,lanes:i%3+1,note:i%2?'南段':'北段',nullable:null},geometry:{type:'LineString',coordinates:[[116.3,39.9],[116.301,39.901]]}}));
+  await fs.writeFile(routeTableFixture,JSON.stringify({type:'FeatureCollection',features:routeTableFeatures}));
+  await queueDialog('open',routeTableFixture);await click('[aria-label="导入本地路线"]');
+  await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
+  assert.equal(await evaluate('document.querySelectorAll(".route-feature-selector__table tbody tr").length'),50);
+  assert((await evaluate('document.querySelector(".route-feature-selector__table thead").innerText')).includes('nullable'));
+  await evaluate('document.querySelector(".route-feature-selector__columns summary").click()');
+  await evaluate('(()=>{const l=[...document.querySelectorAll(".route-feature-selector__column-list label")].find(l=>l.querySelector("span").firstChild.textContent.trim()==="note");l.querySelector("input").click();})()');
+  assert.equal(await evaluate('[...document.querySelectorAll(".route-feature-selector__table th")].some(e=>e.innerText==="note")'),false);
+  await evaluate('document.querySelector(".route-feature-selector__columns summary").click()');
+  await screenshot('39-route-attribute-columns.png');
+  await clickText('SQL 条件');
+  const sqlCondition="left(route_id, 3) = 'G10' AND right(route_id, 2) IN ('01', '02')";
+  await evaluate(`(()=>{const e=document.querySelector('#route-filter-condition');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(sqlCondition)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await clickText('应用条件');
+  await waitFor('document.querySelectorAll(".route-feature-selector__table tbody tr").length===4');
+  await clickText('全选筛选结果');await waitFor('document.querySelectorAll(".route-feature-selector__table tbody input:checked").length===4');
+  await screenshot('39-route-attribute-table.png');
+  await evaluate(`(()=>{const e=document.querySelector('#route-filter-condition');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'left(missing, 3) = 1');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await clickText('应用条件');await waitFor('Boolean(document.querySelector(".route-feature-selector__error"))');
+  assert.equal(await evaluate('document.querySelectorAll(".route-feature-selector__table tbody tr").length'),4);
+  await clickText('加载到地图（4）');
+  await waitFor('!document.querySelector(".route-feature-selector")');
+  await waitFor('window.__ROAD_WORKBENCH__.getProject().vector_basemaps?.some(layer=>layer.kind==="route-source")');
+  const loadedRouteSource=await evaluate(`(()=>{const rows=window.__ROAD_WORKBENCH__.getProject().vector_basemaps.filter(layer=>layer.kind==='route-source');return rows.at(-1);})()`);
+  const expectedRouteFeatures=routeTableFeatures.filter(feature=>['G10-01','G10-02','G10-101','G10-102'].includes(feature.properties.route_id));
+  assert.equal(loadedRouteSource.collection.features.length,4);
+  assert.deepEqual(loadedRouteSource.collection.features.map(feature=>feature.properties),expectedRouteFeatures.map(feature=>feature.properties),'地图源必须保留筛选路线的完整原始属性');
+  assert.deepEqual(loadedRouteSource.fields.map(field=>typeof field==='string'?field:field.name),['route_id','lanes','note','nullable']);
+  const routeLayerId=`background-${loadedRouteSource.id}-line`;
+  await waitFor(`Boolean(window.__ROAD_WORKBENCH__.getMap().getSource(${JSON.stringify(`background-${loadedRouteSource.id}`)})&&window.__ROAD_WORKBENCH__.getMap().getLayer(${JSON.stringify(routeLayerId)}))`);
+  await waitFor('!window.__ROAD_WORKBENCH__.getMap().isMoving()');
+  const routeHitPoint=await evaluate(`(()=>{const map=window.__ROAD_WORKBENCH__.getMap(),bounds=map.getCanvas().getBoundingClientRect(),point=map.project([116.3005,39.9005]);return {x:point.x+bounds.left,y:point.y+bounds.top};})()`);
+  await waitFor(`(()=>{const map=window.__ROAD_WORKBENCH__.getMap(),bounds=map.getCanvas().getBoundingClientRect(),point=map.project([116.3005,39.9005]);return map.queryRenderedFeatures(point,{layers:[${JSON.stringify(routeLayerId)}]}).length>0;})()`);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...routeHitPoint,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...routeHitPoint,button:'left',clickCount:1});
+  await waitFor('window.__ROAD_WORKBENCH__.getProject().route_id==="G10-01"||window.__ROAD_WORKBENCH__.getProject().route_id==="G10-02"||window.__ROAD_WORKBENCH__.getProject().route_id==="G10-101"||window.__ROAD_WORKBENCH__.getProject().route_id==="G10-102"');
+  assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_label.includes("route-table.geojson")'));
+  await screenshot('39-selected-routes-on-map.png');
+  check('路线属性表错误筛选保留有效结果，加载4条完整地图源并单击激活参考线',{routeIds:loadedRouteSource.collection.features.map(feature=>feature.properties.route_id),mapLayer:routeLayerId,activeRouteId:await evaluate('window.__ROAD_WORKBENCH__.getProject().route_id')});
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(beforeMapping)})`);
   await evaluate(`window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),source_mapping:{},manual_section:null,source_fields:[{name:"qa_count",type:"integer",comment:"车道数量"},{name:"qa_width",type:"numeric",description:"单位为米"},{name:"qa_bad",type:"text",comment:"故意错误值"}],mapped_attributes:{qa_count:1,qa_width:4.25,qa_bad:"not-a-number"}})`);
   await click('[aria-label="数据"]');await clickText('数据');await clickText('配置字段映射…');
   await evaluate('(()=>{const e=[...document.querySelectorAll(".field-mapping__grid label")].find(l=>l.innerText.startsWith("左侧车道数")).querySelector("select");e.value="qa_count";e.dispatchEvent(new Event("change",{bubbles:true}));})()');

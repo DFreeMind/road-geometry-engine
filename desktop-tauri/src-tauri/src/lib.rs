@@ -24,6 +24,7 @@ pub fn run() {
             write_geojson,
             facilities_catalog,
             gis::import_vector,
+            gis::query_vector_data,
             gis::list_vector_layers,
             gis::import_remote_vector,
             gis::list_remote_layers,

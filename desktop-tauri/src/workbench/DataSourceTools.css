@@ -290,6 +290,59 @@
   color: var(--muted, #667684);
   line-height: 1.5;
 }
+.source-browser__operations,
+.source-browser__read-range {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted, #667684);
+  font-size: 12px;
+}
+.source-browser__operations > summary,
+.source-browser__read-range > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.source-browser__operations > button:not(.source-browser__manual) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: 1px solid #dce6ef;
+  border-radius: 6px;
+  background: #f8fbfe;
+  color: #355878;
+  padding: 6px 9px;
+  cursor: pointer;
+  font: inherit;
+}
+.source-browser__read-range {
+  border-top: 1px solid #e6edf4;
+  padding-top: 8px;
+}
+.source-browser__read-range-fields {
+  display: grid;
+  gap: 9px;
+  padding-top: 2px;
+}
+.source-browser__read-range-fields small {
+  color: var(--muted, #667684);
+  line-height: 1.45;
+}
+.source-browser__bounds-toggle {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 7px !important;
+}
+.source-browser__bounds-toggle input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+}
+.source-browser__bounds-toggle small {
+  grid-column: 2;
+}
 .source-browser__manual {
   border: 0;
   background: transparent;
@@ -360,6 +413,62 @@
   min-width: 0;
 }
 .source-browser__hint {
+  font-size: 11px;
+}
+.source-entry-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+.source-entry-tabs button {
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #49627b;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+.source-entry-tabs button[aria-pressed="true"] {
+  color: #175fa6;
+  background: #fff;
+  box-shadow: 0 1px 3px #18334a24;
+}
+.source-entry-tabs button:focus-visible {
+  outline: 2px solid #2c82dc;
+  outline-offset: 2px;
+}
+.source-file-entry {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.source-file-entry > p {
+  font-size: 11px;
+}
+.source-file-entry > button {
+  width: 100%;
+}
+.source-browser__capability {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #245f94;
+  background: #edf5fd;
+  font-size: 11px;
+  font-weight: 600;
+}
+.source-browser__snapshot-note {
+  padding: 8px 9px;
+  border-radius: 6px;
+  color: #61768a;
+  background: #f4f7fa;
   font-size: 11px;
 }
 .source-browser__empty {
