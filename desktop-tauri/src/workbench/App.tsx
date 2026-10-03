@@ -1,3 +1,8 @@
+import {
+  saveBindingMapping,
+  type SourceBinding,
+  type FieldMapping,
+} from "./connections";
 import { installMapWheelHandling } from "./MapInteraction";
 import {
   useCallback,
@@ -84,7 +89,15 @@ import { WorkbenchMenu } from "./WorkbenchMenu";
 import { AlongRouteTools } from "./AlongRouteTools";
 import { BasemapPicker } from "./BasemapPicker";
 import { registerBasemapProtocols, type BasemapConfig } from "./basemaps";
-import { DataSourceTools, FieldMappingTools } from "./DataSourceTools";
+import {
+  DataSourceTools,
+  FieldMappingTools,
+  type Field,
+} from "./DataSourceTools";
+import {
+  RouteFeatureSelector,
+  type RouteFeature,
+} from "./RouteFeatureSelector";
 
 type Panel = "data" | "road" | "facility" | "layers";
 type Tool = "pan" | "route" | "vertex" | "facility";
@@ -269,7 +282,7 @@ export function App() {
     () => window.innerWidth >= 1180 && readLayout().inspector,
   );
   const [helpOpen, setHelpOpen] = useState(false);
-  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(true);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [comparing, setComparing] = useState(false);
   const compareBackup = useRef(layerVisible);
@@ -1479,22 +1492,47 @@ export function App() {
     setLayerChoices(null);
   }
   const [routeChoices, setRouteChoices] = useState<{
-    features: any[];
+    features: RouteFeature[];
     label: string;
+    binding?: SourceBinding;
+    fields: Field[];
+    revision: number;
   } | null>(null);
-  async function acceptVector(imported: any, label: string) {
+  const routeChoiceRevision = useRef(0);
+  async function acceptVector(
+    imported: any,
+    label: string,
+    binding?: SourceBinding,
+  ) {
+    if (!binding && imported.layer_name)
+      label = `${label} · ${imported.layer_name}`;
     const features =
-      imported.collection?.features?.filter((feature: any) =>
+      (imported.collection?.features?.filter((feature: any) =>
         ["LineString", "MultiLineString"].includes(feature.geometry?.type),
-      ) ?? [];
+      ) as RouteFeature[] | undefined) ?? [];
     if (!features.length) throw new Error("所选图层没有可用线要素。");
+    const fields: Field[] =
+      Array.isArray(imported.fields) && imported.fields.length
+        ? imported.fields
+        : Object.keys(features[0].properties ?? {});
     if (features.length > 1) {
-      setRouteChoices({ features, label });
+      setRouteChoices({
+        features,
+        label,
+        binding,
+        fields,
+        revision: ++routeChoiceRevision.current,
+      });
       return;
     }
-    await selectSourceFeature(features[0], label);
+    await selectSourceFeature(features[0], label, binding, fields);
   }
-  async function selectSourceFeature(feature: any, label: string) {
+  async function selectSourceFeature(
+    feature: any,
+    label: string,
+    binding?: SourceBinding,
+    sourceFields?: Field[],
+  ) {
     try {
       const coords = pickLinePart(feature.geometry);
       if (coords.length < 2 || coords.length > 2000)
@@ -1505,17 +1543,31 @@ export function App() {
       await ensureCrs(projectRef.current.crs);
       const converted = reprojectProject(projectRef.current, targetCrs);
       const attributes = feature.properties ?? {};
-      const mappedField =
-        (projectRef.current.source_mapping as any)?.route_id ??
-        (attributes.route_id != null
+      const sourceMapping = binding
+        ? (binding.mapping ?? {})
+        : projectRef.current.source_label === label &&
+            !projectRef.current.source_binding
+          ? ((projectRef.current.source_mapping as FieldMapping) ?? {})
+          : {};
+      const validMapping = Object.fromEntries(
+        Object.entries(sourceMapping).filter(
+          ([_key, value]) =>
+            typeof value !== "string" || Object.hasOwn(attributes, value),
+        ),
+      ) as FieldMapping;
+      const mappedField = Object.hasOwn(validMapping, "route_id")
+        ? typeof validMapping.route_id === "string"
+          ? validMapping.route_id
+          : null
+        : attributes.route_id != null
           ? "route_id"
           : attributes.name != null
             ? "name"
-            : null);
+            : null;
       const mappedRoute = resolveMappedValue(
         attributes,
         mappedField,
-        projectRef.current.mapping_null_fallback === true,
+        validMapping.mapping_null_fallback === true,
         projectRef.current.route_id,
       );
       update((current) => ({
@@ -1525,10 +1577,17 @@ export function App() {
         ),
         route_source: label,
         mapped_attributes: attributes,
-        source_fields: Object.keys(attributes),
+        source_fields: sourceFields?.length
+          ? sourceFields
+          : Object.keys(attributes),
         source_label: label,
+        source_binding: binding ?? null,
+        section:
+          (current.manual_section as RoadProject["section"] | undefined) ??
+          converted.section,
+        mapping_null_fallback: validMapping.mapping_null_fallback === true,
         source_mapping: {
-          ...((current.source_mapping as object) ?? {}),
+          ...validMapping,
           route_id: mappedField,
         },
         route_id:
@@ -1536,10 +1595,19 @@ export function App() {
             ? current.route_id
             : String(mappedRoute.value),
       }));
+      const mappingOkay = !binding?.mapping || applyFieldMapping(validMapping);
       setRouteChoices(null);
       setToolMode("pan");
       fitProject(mapRef.current, projectRef.current);
-      setStatus(`已选择路线 · ${coords.length} 点 · 工程 ${targetCrs}`, "ok");
+      if (mappingOkay)
+        setStatus(
+          Object.keys(validMapping).length < Object.keys(sourceMapping).length
+            ? "已读取路线；源字段发生变化，失效映射已解除，请复核字段规则。"
+            : `已选择路线 · ${coords.length} 点 · 工程 ${targetCrs}`,
+          Object.keys(validMapping).length < Object.keys(sourceMapping).length
+            ? "warn"
+            : "ok",
+        );
     } catch (error) {
       setStatus(errorMessage(error), "error");
     }
@@ -2122,8 +2190,16 @@ export function App() {
         route_id: String(id.value ?? value.route_id),
       }));
       setStatus("字段映射已应用；请检查横断面并重新生成。", "ok");
+      return true;
     } catch (error) {
+      // 保存字段选择，避免数值校验失败时下拉框回退到旧映射。
+      update((value) => ({
+        ...value,
+        source_mapping: mapping,
+        mapping_null_fallback: mapping.mapping_null_fallback === true,
+      }));
       setStatus(errorMessage(error), "error");
+      return false;
     }
   }
   async function importCatalog() {
@@ -2775,24 +2851,24 @@ export function App() {
                 );
               }}
               mappingField={mappingField}
+              primarySource={
+                <details
+                  className="data-tool-details data-source-primary"
+                  open={sourceOpen}
+                  onToggle={(event) => setSourceOpen(event.currentTarget.open)}
+                >
+                  <summary>数据源连接</summary>
+                  <DataSourceTools
+                    onImport={(result, label, binding) => {
+                      void acceptVector(result, label, binding).catch((error) =>
+                        setStatus(errorMessage(error), "error"),
+                      );
+                    }}
+                  />
+                </details>
+              }
               extras={
                 <>
-                  <details
-                    className="data-tool-details"
-                    open={sourceOpen}
-                    onToggle={(event) =>
-                      setSourceOpen(event.currentTarget.open)
-                    }
-                  >
-                    <summary>连接 WFS / PostGIS 数据源</summary>
-                    <DataSourceTools
-                      onImport={(result, label) => {
-                        void acceptVector(result, label).catch((error) =>
-                          setStatus(errorMessage(error), "error"),
-                        );
-                      }}
-                    />
-                  </details>
                   <details
                     className="data-tool-details"
                     open={mappingOpen}
@@ -2800,9 +2876,16 @@ export function App() {
                       setMappingOpen(event.currentTarget.open)
                     }
                   >
-                    <summary>配置路线与横断面字段映射</summary>
+                    <summary>
+                      字段映射
+                      <span className="mapping-summary">
+                        {(project.source_fields as string[] | undefined)
+                          ?.length ?? 0}{" "}
+                        个字段
+                      </span>
+                    </summary>
                     <FieldMappingTools
-                      fields={(project.source_fields as string[]) ?? []}
+                      fields={(project.source_fields as Field[]) ?? []}
                       attributes={
                         (project.mapped_attributes as Record<
                           string,
@@ -2814,6 +2897,35 @@ export function App() {
                         mapping_null_fallback:
                           project.mapping_null_fallback === true,
                       }}
+                      context={String(
+                        (project.source_binding as SourceBinding | null)
+                          ?.label ??
+                          project.source_label ??
+                          "当前本地路线 · 独立映射",
+                      )}
+                      onSaveRule={
+                        project.source_binding
+                          ? () => {
+                              try {
+                                saveBindingMapping(
+                                  project.source_binding as SourceBinding,
+                                  {
+                                    ...((project.source_mapping as FieldMapping) ??
+                                      {}),
+                                    mapping_null_fallback:
+                                      project.mapping_null_fallback === true,
+                                  },
+                                );
+                                setStatus(
+                                  "已保存此图层的字段规则；其他连接与图层不受影响。",
+                                  "ok",
+                                );
+                              } catch (error) {
+                                setStatus(errorMessage(error), "warn");
+                              }
+                            }
+                          : undefined
+                      }
                       onChange={applyFieldMapping}
                     />
                   </details>
@@ -3548,35 +3660,33 @@ export function App() {
           title={`选择路线 · ${routeChoices.features.length} 条`}
           onCancel={() => setRouteChoices(null)}
         >
-          <p>选择本次生成使用的参考线，原始字段随项目保留。</p>
-          <div className="route-choice-list">
-            {routeChoices.features.map((feature, index) => (
-              <button
-                className="button outline full"
-                key={index}
-                onClick={() =>
-                  void selectSourceFeature(feature, routeChoices.label)
-                }
-              >
-                {index + 1}.{" "}
-                {String(
-                  feature.properties?.name ??
-                    feature.properties?.route_id ??
-                    feature.id ??
-                    "未命名线要素",
-                )}{" "}
-                · {feature.geometry.type}
-              </button>
-            ))}
-          </div>
-          <div className="dialog-actions">
-            <button
-              className="button outline"
-              onClick={() => setRouteChoices(null)}
-            >
-              取消
-            </button>
-          </div>
+          <RouteFeatureSelector
+            key={routeChoices.revision}
+            features={routeChoices.features}
+            fields={routeChoices.fields}
+            onCancel={() => setRouteChoices(null)}
+            onRead={(features) => {
+              if (features.length === 1) {
+                void selectSourceFeature(
+                  features[0],
+                  routeChoices.label,
+                  routeChoices.binding,
+                  routeChoices.fields,
+                );
+                return;
+              }
+              setRouteChoices({
+                ...routeChoices,
+                features,
+                fields: routeChoices.fields,
+                revision: ++routeChoiceRevision.current,
+              });
+              setStatus(
+                `已将 ${features.length} 条路线带入选择集；请从集合中勾选一条作为当前参考线。`,
+                "ok",
+              );
+            }}
+          />
         </Modal>
       )}
       {helpOpen && (
@@ -3754,6 +3864,7 @@ function DataPanel({
   onNullFallback,
   mappingField,
   extras,
+  primarySource,
 }: {
   project: RoadProject;
   status: Status;
@@ -3763,29 +3874,41 @@ function DataPanel({
   onNullFallback: (enabled: boolean) => void;
   mappingField: string;
   extras?: React.ReactNode;
+  primarySource?: React.ReactNode;
 }) {
   return (
     <div className="panel-content data-panel">
+      {primarySource}
+      {extras}
       <section className="section-block">
         <div className="section-head">
-          <h3>工程输入</h3>
+          <h3>其他输入方式</h3>
           <span className="count-tag">{project.crs}</span>
         </div>
-        <p className="section-intro">导入参考线，再配置横断面生成道路。</p>
-        <button className="dropzone" onClick={importRoute}>
-          <div className="dropzone-icon">
-            <Upload size={19} />
-          </div>
-          <strong>导入路线或路网</strong>
-          <span>GeoJSON / GeoPackage / Shapefile</span>
-          <span className="dropzone-link">
-            选择本地文件 <ArrowUpFromLine size={13} />
-          </span>
-        </button>
-        <div className="inline-actions">
+
+        <div className="data-secondary-actions">
+          <button
+            className="button outline"
+            onClick={importRoute}
+            aria-label="导入本地路线"
+          >
+            <Upload size={15} />
+            本地路线文件
+          </button>
           <button className="button outline" onClick={importRaster}>
             <Plus size={15} />
             添加栅格
+          </button>
+          <button
+            className="button outline"
+            onClick={() =>
+              document
+                .querySelector<HTMLButtonElement>('[aria-label="绘制路线"]')
+                ?.click()
+            }
+          >
+            <PenLine size={15} />
+            在地图上绘制
           </button>
         </div>
       </section>
@@ -3808,19 +3931,7 @@ function DataPanel({
             </small>
           </div>
         </div>
-        <button
-          className="button outline full"
-          onClick={() =>
-            document
-              .querySelector<HTMLButtonElement>('[aria-label="绘制路线"]')
-              ?.click()
-          }
-        >
-          <PenLine size={15} />
-          在地图上绘制
-        </button>
       </section>
-      {extras}
       <details className="section-block project-card project-details">
         <summary>
           <FileJson size={15} />

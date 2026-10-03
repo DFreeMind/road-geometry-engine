@@ -58,6 +58,7 @@ export type RoadProject = {
   mapped_attributes?: unknown;
   source_fields?: unknown;
   source_label?: unknown;
+  source_binding?: import("./workbench/connections").SourceBinding | null;
   scene_options?: Record<string, unknown>;
   basemap_view?: Record<string, unknown>;
   manual_facilities: Facility[];

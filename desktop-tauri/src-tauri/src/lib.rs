@@ -1,3 +1,4 @@
+mod credentials;
 mod engine;
 mod gis;
 mod project;
@@ -17,11 +18,17 @@ pub fn run() {
             project::load_project,
             project::save_catalog,
             project::read_catalog,
+            credentials::read_connection_password,
+            credentials::store_connection_password,
+            credentials::delete_connection_password,
             write_geojson,
             facilities_catalog,
             gis::import_vector,
             gis::list_vector_layers,
             gis::import_remote_vector,
+            gis::list_remote_layers,
+            gis::test_remote_connection,
+            gis::get_database_capabilities,
             gis::import_raster,
             gis::export_geopackage,
             gis::raster_tile,

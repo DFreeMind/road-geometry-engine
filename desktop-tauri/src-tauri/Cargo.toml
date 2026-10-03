@@ -19,5 +19,8 @@ serde_json = "1"
 tempfile = "3"
 dunce = "1"
 
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "4.2.0", default-features = false, features = ["v1", "windows-native-keyring-store"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

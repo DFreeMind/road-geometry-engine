@@ -41,7 +41,19 @@ while ($queue.Count -gt 0) {
     }
 }
 if ($missing.Count) { throw "未解析的 DLL：$($missing -join ', ')" }
-# 只复制 GDAL/PROJ 运行资源，不捆绑 QGIS、Qt、Python 或可选第三方驱动。
+# 只打包许可明确的 GDAL 数据库插件，不捆绑 Microsoft/Oracle 专有客户端。
+$databasePluginPath = Join-Path $gisPath 'plugins'
+New-Item -ItemType Directory -Path $databasePluginPath -Force | Out-Null
+$databasePlugins = @()
+foreach ($pluginName in @('ogr_MSSQLSpatial.dll','ogr_OCI.dll')) {
+    $pluginSource = Join-Path $GisRoot "apps\gdal\lib\gdalplugins\$pluginName"
+    if (Test-Path -LiteralPath $pluginSource) {
+        $pluginTarget = Join-Path $databasePluginPath $pluginName
+        Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force
+        $databasePlugins += @{ name = $pluginName; sha256 = (Get-FileHash -LiteralPath $pluginTarget -Algorithm SHA256).Hash; client = 'external' }
+    }
+}
+# 只复制 GDAL/PROJ 运行资源，不捆绑 QGIS、Qt、Python 或影像可选驱动。
 foreach ($data in @(@{source='apps\gdal\share\gdal'; target='share\gdal'}, @{source='share\proj'; target='share\proj'})) {
     $destination = Join-Path $gisPath $data.target
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
@@ -64,7 +76,7 @@ $files = @($copied | Sort-Object | ForEach-Object {
     $filePath = Join-Path $gisBin $_
     @{ name = $_; sha256 = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash; version = (Get-Item -LiteralPath $filePath).VersionInfo.FileVersion }
 })
-@{ built_at = (Get-Date).ToString('o'); gdal = "$gdalVersion"; source = $GisRoot; files = $files; optional_plugins = $false } |
+@{ built_at = (Get-Date).ToString('o'); gdal = "$gdalVersion"; source = $GisRoot; files = $files; optional_plugins = ($databasePlugins.Count -gt 0); database_plugins = $databasePlugins; database_clients = "external" } |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $gisPath 'runtime-manifest.json') -Encoding utf8
 $assetPath = Join-Path $clientPath 'public\assets'
 New-Item -ItemType Directory -Path $assetPath -Force | Out-Null

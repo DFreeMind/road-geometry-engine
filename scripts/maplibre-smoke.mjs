@@ -45,8 +45,17 @@ const waitFor = async (expression, seconds = 30) => {
   throw new Error(`等待超时：${expression}\n${await evaluate('document.body.innerText')}`);
 };
 const invoke = (name, args = {}) => evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`);
-const click = selector => evaluate(`(()=>{const button=document.querySelector(${JSON.stringify(selector)});if(!button)throw new Error('找不到按钮');button.click();})()`);
-const clickText = text => evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(text)});if(!button)throw new Error('找不到按钮 '+${JSON.stringify(text)});button.click();})()`);
+const click = async selector => {
+  if (selector === '[aria-label="管理数据连接"]')
+    await waitFor(`!document.querySelector(${JSON.stringify(selector)}).disabled`);
+  await evaluate(`(()=>{const button=document.querySelector(${JSON.stringify(selector)});if(!button)throw new Error('找不到按钮');button.click();})()`);
+  if (selector === '[aria-label="管理数据连接"]')
+    await waitFor('Boolean(document.querySelector(".connection-manager[open]"))');
+};
+const clickText = async text => {
+  await waitFor(`(()=>{const b=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(text)});return b&&!b.disabled&&!b.closest('[inert]')})()`);
+  await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(text)});if(!button)throw new Error('找不到按钮 '+${JSON.stringify(text)});button.click();})()`);
+};
 const queueDialog = (type, file) => evaluate(`window.__ROAD_WORKBENCH__.dialogs.${type}.push(${JSON.stringify(file)})`);
 const screenshot = async name => { const result = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await fs.writeFile(path.join(outputDirectory, name), Buffer.from(result.data, 'base64')); };
 let originalLayout;
@@ -193,7 +202,7 @@ try {
   await waitFor('document.querySelector(".save-badge").innerText === "已保存"'); check('Ctrl+S 保存与独立保存状态',true);
   await new Promise(resolve => setTimeout(resolve, 300));
   const facilityProject = JSON.parse(await fs.readFile(projectFile, 'utf8'));
-  assert.equal(facilityProject.manual_facilities[0].x,draftX); check('Ctrl+S 提交当前数值草稿后保存',true);
+  assert(Math.abs(facilityProject.manual_facilities[0].x-draftX)<1e-8,'设施坐标保存误差应小于10纳米'); check('Ctrl+S 提交当前数值草稿后保存',true);
   assert.equal(facilityProject.manual_facilities.length, 1); assert.equal(facilityProject.manual_facilities[0].confirmed, false);
   assert(facilityProject.output, '设施编辑不应清除道路成果');
   assert(facilityProject.manual_facilities[0].template.id); check('地图放置设施及快照保存', facilityProject.manual_facilities[0].template.id);
@@ -237,7 +246,7 @@ try {
   await waitFor('document.body.innerText.includes("已从 schema 1 迁移")'); check('打开项目的取消与保存保护',true);
   await waitFor('!window.__ROAD_WORKBENCH__.getMap().getStyle().layers.some(layer => layer.id.startsWith("raster-"))');
   check('切换项目清除旧影像图层', true);
-  await click('[aria-label="保存项目"]'); await new Promise(resolve => setTimeout(resolve, 300));
+  await click('[aria-label="保存项目"]'); await waitFor('document.body.innerText.includes("项目已保存")');
   const migrated = JSON.parse(await fs.readFile(legacyFile, 'utf8'));
   assert.equal(migrated.schema_version, 2); assert.equal(migrated.manual_facilities.length, 1); assert(migrated.manual_facilities[0].template);
   assert.equal(migrated.catalog.entries.length, 66, '旧项目恢复后应保留完整系统目录');
@@ -375,6 +384,202 @@ try {
   await clickText('数据'); await clickText('连接远程数据…');
   await waitFor('document.querySelector(".source-tools") !== null');
   assert(await evaluate('document.querySelector(".source-tools").parentElement.open')); check('WFS 与 PostGIS 数据连接入口',true);
+
+  assert(await evaluate('document.querySelector(".data-panel").firstElementChild.classList.contains("data-source-primary")'));
+  await click('[aria-label="管理数据连接"]');
+  await waitFor('Boolean(document.querySelector(".connection-manager[open]"))');
+  const fillConnection = (label,value) => evaluate(`(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.textContent.trim().startsWith(${JSON.stringify(label)}) && l.querySelector('input')).querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await fillConnection('连接名称','道路主库');await fillConnection('数据库','road_design');await fillConnection('用户','reader');await fillConnection('密码','qa-never-store');
+  await screenshot('26-postgis-primary.png');
+  await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),1);
+  assert(!(await evaluate('localStorage.getItem("road-data-connections-v1")')).includes('qa-never-store'));
+  assert.equal(await evaluate("JSON.parse(localStorage.getItem('road-data-connections-v1')).connections[0].layers.length"),0);
+  assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '保存连接后不重复展开会话密码');
+  check('数据库级连接无需填写路线表',true);
+  await click('[aria-label="管理数据连接"]');
+  assert(await evaluate("[...document.querySelectorAll('.connection-manager label')].find(l=>l.textContent.trim().startsWith('密码')).querySelector('input').value === 'qa-never-store'"));check('连接管理复用密码且不写入公开配置',true);
+  await evaluate("(()=>{const d=document.querySelector('.connection-manager details');d.open=true})()");
+  await fillConnection('主机','127.0.0.1');await fillConnection('端口',1);
+  assert.equal(await evaluate("[...document.querySelectorAll('.connection-manager label')].find(l=>l.textContent.trim().startsWith('密码')).querySelector('input').value"),'', '更改连接身份时清除旧密码');
+  const projectBeforeTest=await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())');
+  await waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接')?.disabled");
+  await clickText('测试连接');
+  await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('连接测试失败')",30);
+  assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())'),projectBeforeTest);
+  check('实际原生连接测试失败反馈且工程保持不变',true);
+  const connectionViewport=await evaluate('({width:innerWidth,height:innerHeight})');
+  await command('Emulation.setDeviceMetricsOverride',{width:860,height:640,deviceScaleFactor:1,mobile:false});
+  await screenshot('29-connection-test-narrow.png');
+  assert(await evaluate("(()=>{const b=[...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接');const r=b.getBoundingClientRect();return r.bottom<=innerHeight&&b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()"));
+  check('窄窗口连接测试与保存操作可访问',true);
+  await command('Emulation.setDeviceMetricsOverride',{...connectionViewport,deviceScaleFactor:1,mobile:false});
+
+  if (process.env.ROAD_QA_PG_PORT) {
+    await fillConnection('主机','127.0.0.1');await fillConnection('端口',Number(process.env.ROAD_QA_PG_PORT));await fillConnection('数据库','postgres');await fillConnection('用户','qa_reader');await fillConnection('密码','qa-session-only');
+    await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('PostgreSQL 连接成功')");
+    assert(await evaluate("document.querySelector('.connection-manager [role=status]').innerText.includes('未启用 PostGIS')"));
+    await screenshot('30-postgres-connection-success.png');check('真实普通PG认证连接成功且PostGIS缺失不误报',true);
+    await fillConnection('密码','wrong-qa-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('认证失败')");check('真实PG认证失败分类',true);
+    await fillConnection('密码','qa-session-only');
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('SSL')).querySelector('select');e.value='require';e.dispatchEvent(new Event('change',{bubbles:true}));})()");await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('SSL 协商')");
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('SSL')).querySelector('select');e.value='disable';e.dispatchEvent(new Event('change',{bubbles:true}));})()");await fillConnection('密码','qa-session-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('PostgreSQL 连接成功')");check('真实SSL要求失败和关闭SSL连接成功',true);
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('SSL')).querySelector('select');e.value='prefer';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('连接范围')).querySelector('select');e.value='schema';e.dispatchEvent(new Event('change',{bubbles:true}));})()");await fillConnection('Schema','public');await fillConnection('密码','qa-session-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('Schema 可访问')");
+    await fillConnection('Schema','missing_qa_schema');await fillConnection('密码','qa-session-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('Schema 不存在')");check('真实PG Schema访问和缺失诊断',true);
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('连接范围')).querySelector('select');e.value='database';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await fillConnection('数据库','road_design');await fillConnection('用户','reader');await fillConnection('密码','qa-never-store');
+  }
+  await fillConnection('主机','localhost');await fillConnection('端口',5432);
+  await click('[aria-label="添加数据源图层"]');await fillConnection('路线表','roads');await clickText('保存路线图层');await waitFor('!document.querySelector(".connection-manager")');
+  await click('[aria-label="管理数据连接"]');await click('[aria-label="添加数据源图层"]');
+  await fillConnection('Schema','design');await fillConnection('路线表','roads_v2');await clickText('保存路线图层');
+  await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据源图层"]').options.length`),2);
+  await click('[aria-label="管理数据连接"]');await screenshot('27-connection-manager.png');await click('[aria-label="添加数据源图层"]');
+  await fillConnection('Schema','temporary');await fillConnection('路线表','qa_delete');await clickText('保存路线图层');await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据源图层"]').options.length`),3);
+  await click('[aria-label="管理数据连接"]');await clickText('temporary.qa_delete (geom)');await click('[aria-label="删除数据源图层"]');await clickText('确认删除');await waitFor(`!document.querySelector('[aria-label="关闭连接管理"]').disabled`);await click('[aria-label="关闭连接管理"]');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据源图层"]').options.length`),2);
+
+  await click('[aria-label="管理数据连接"]');await click('[aria-label="复制数据连接"]');
+  await fillConnection('连接名称','备用道路库');await fillConnection('数据库','backup');
+  await evaluate("(()=>{const e=[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('连接范围')).querySelector('select');e.value='schema';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+  await fillConnection('Schema','planning');await screenshot('28-schema-connection.png');await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),2);
+  assert.equal(await evaluate("JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='备用道路库').config.default_schema"),'planning');
+  check('Schema级连接无需表且范围保存',true);
+  await click('[aria-label="管理数据连接"]');await click('[aria-label="删除数据连接"]');await clickText('确认删除');
+  await waitFor(`!document.querySelector('[aria-label="关闭连接管理"]').disabled`);
+  await click('[aria-label="关闭连接管理"]');await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),1);
+  await click('[aria-label="管理数据连接"]');await clickText('新建连接');await click('[data-kind="wfs"]');
+  await fillConnection('连接名称','规划 WFS');await fillConnection('服务地址','https://example.com/wfs');
+  await screenshot('25-wfs-primary.png');await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),2);
+  await click('[aria-label="管理数据连接"]');await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
+  await waitFor('!document.querySelector(".connection-manager")');
+  assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'),'管理数据连接');
+  check('多连接、新增Schema图层、复制删除、公开配置无密码和管理窗口焦点',true);
+  await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择数据连接\"]');e.value=JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库').id;e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+  assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '切换回来复用原连接的会话认证');
+  await clickText('更换认证');
+  assert.equal(await evaluate("document.querySelector('.source-browser input[type=password]').value"),'qa-never-store');
+  await click('[aria-label="道路"]');await click('[aria-label="数据"]');
+  await waitFor("Boolean(document.querySelector('.source-browser'))");
+  assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '切换工作区后会话凭据仍可复用');
+  check('连接切换和面板卸载后复用会话密码，按需更换认证',true);
+  const databaseCapabilities=await invoke('get_database_capabilities');
+  assert.deepEqual(databaseCapabilities.databases.map(c=>c.kind),['postgis','mysql','mssql','oracle','sqlite','gpkg']);
+  assert(databaseCapabilities.databases.filter(c=>['mysql','sqlite','gpkg'].includes(c.kind)).every(c=>c.available));
+  for (const c of databaseCapabilities.databases.filter(c=>!c.available)) assert(c.reason);
+  check('空间数据库运行时驱动检测及缺失依赖提示',true);
+  const databaseProjectBefore=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
+  const chooseDatabaseKind=(kind)=>evaluate(`(()=>{const e=document.querySelector('[aria-label="数据库类型"]');e.value=${JSON.stringify(kind)};e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  const waitDatabaseTestReady=()=>waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接')?.disabled");
+  await click('[aria-label="管理数据连接"]');await clickText('新建连接');await chooseDatabaseKind('mssql');
+  const sqlAvailable=databaseCapabilities.databases.find(c=>c.kind==='mssql').available;
+  if(!sqlAvailable){await waitFor("document.querySelector('.connection-manager .source-browser__status')?.innerText.includes('ODBC')");assert(await evaluate("[...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接').disabled"));}
+  await screenshot('31-sqlserver-dependency.png');
+  await chooseDatabaseKind('oracle');
+  if(!databaseCapabilities.databases.find(c=>c.kind==='oracle').available) await waitFor("document.querySelector('.connection-manager .source-browser__status')?.innerText.includes('Oracle Client')");
+  assert(await evaluate("[...document.querySelectorAll('.connection-manager label')].some(l=>l.innerText.startsWith('服务名'))"));
+  await screenshot('32-oracle-service.png');await click('[aria-label="关闭连接管理"]');
+  for (const [kind,name,file,table] of [['gpkg','GeoPackage 路线库',uiGpkgFile,'参考线'],...(process.env.ROAD_QA_SQLITE_PATH ? [['sqlite','SpatiaLite 路线库',process.env.ROAD_QA_SQLITE_PATH,'roads']] : [])]) {
+    await click('[aria-label="管理数据连接"]');await clickText('新建连接');await chooseDatabaseKind(kind);await fillConnection('连接名称',name);
+    await queueDialog('open',file);await clickText('选择数据库文件');await waitFor(`[...document.querySelectorAll('.connection-manager label')].find(l=>l.innerText.startsWith('数据库文件')).querySelector('input').value===${JSON.stringify(file)}`);
+    await waitDatabaseTestReady();await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('连接成功')");
+    await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+    assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"));
+    const beforeBrowse=await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())');
+    await clickText('连接并浏览空间表');await waitFor("Boolean(document.querySelector('[aria-label=\"选择空间表\"]'))");
+    assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())'),beforeBrowse, '枚举目录不导入数据或改变工程');
+    assert(await evaluate("[...document.querySelectorAll('button')].find(b=>b.innerText==='添加所选路线图层').disabled"), '目录不自动选择或添加表');
+    await evaluate(`(()=>{const e=document.querySelector('[aria-label="选择空间表"]');const option=[...e.options].find(o=>o.value && JSON.parse(o.value)[1]===${JSON.stringify(table)});if(!option)throw new Error('目录缺少目标空间表');e.value=option.value;e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await screenshot('36-space-table-picker.png');await clickText('添加所选路线图层');
+    await waitFor("!document.querySelector('[aria-label=\"选择数据源图层\"]').disabled");
+    const addedCount=await evaluate("document.querySelector('[aria-label=\"选择数据源图层\"]').options.length");
+    assert(await evaluate("!document.querySelector('.source-browser__directory').open"), '添加后收起目录，进入读取步骤');
+    await evaluate("document.querySelector('.source-browser__directory').open=true");
+    await clickText('添加所选路线图层');assert.equal(await evaluate("document.querySelector('[aria-label=\"选择数据源图层\"]').options.length"),addedCount, '重复添加选择已有图层');
+    check(`${kind}真实空间目录浏览、添加及重复图层去重`,true);
+    await clickText('读取所选路线图层');await waitFor(`window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes(${JSON.stringify(name)})`);
+    assert((await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length'))>=2);
+    assert(await evaluate("(()=>{const e=document.querySelector('.source-browser');return e.scrollWidth<=e.clientWidth+1;})()"), '长数据库路径不能撑宽窄侧栏');
+    await screenshot(kind==='gpkg'?'33-gpkg-connection.png':'34-spatialite-connection.png');check(`${kind}文件空间数据库真实连接与UI读取`,true);
+  }
+  if(process.env.ROAD_QA_PG_CATALOG_DB){
+    const pgConnection={kind:'postgis',host:'127.0.0.1',port:Number(process.env.ROAD_QA_PG_PORT),database:process.env.ROAD_QA_PG_CATALOG_DB,user:'qa_reader',password:'qa-session-only',sslmode:'disable'};
+    const pgCatalog=await invoke('list_remote_layers',{connection:pgConnection});
+    assert(pgCatalog.schemas.includes('public') && pgCatalog.schemas.includes('empty_qa') && pgCatalog.schemas.includes('design.2026'));
+    assert(!pgCatalog.schemas.includes('restricted_qa'));
+    assert.equal(pgCatalog.layers.filter(l=>l.schema==='design'&&l.table==='roads').length,2);
+    assert(pgCatalog.layers.some(l=>l.schema==='design.2026'&&l.table==='roads.main'));
+    assert(pgCatalog.layers.every(l=>l.type_name===''));
+    for (const [geometry_column,geometry_type] of [['geom','LineString'],['alternate','MultiLineString']]) {
+      const imported=await invoke('import_remote_vector',{connection:{...pgConnection,schema:'design',table:'roads',geometry_column}});
+      assert.equal(imported.source_crs,'EPSG:32650');assert.equal(imported.collection.features[0].geometry.type,geometry_type);assert.equal(imported.collection.features[0].properties.route_id,'catalog-design');
+      assert.deepEqual(Object.keys(imported.collection.features[0].properties),['route_id'], '临时SRID校验字段不得进入业务属性');
+    }
+    const unusual=await invoke('import_remote_vector',{connection:{...pgConnection,schema:'design.2026',table:'roads.main',geometry_column:'geom'}});
+    assert.equal(unusual.source_crs,'EPSG:32650');assert.equal(unusual.collection.features.length,0);
+    const untyped=await invoke('import_remote_vector',{connection:{...pgConnection,schema:'design',table:'untyped_roads',geometry_column:'geom'}});
+    assert.equal(untyped.source_crs,'EPSG:32650');assert.equal(untyped.collection.features[0].properties.route_id,'catalog-untyped');
+    const customCrs=await invoke('import_remote_vector',{connection:{...pgConnection,schema:'design',table:'custom_crs',geometry_column:'geom'}});
+    assert.notEqual(customCrs.source_crs,'EPSG:990050');assert.equal(customCrs.collection.features[0].geometry.type,'LineString');
+    let mixedSridError='';
+    try { await invoke('import_remote_vector',{connection:{...pgConnection,schema:'design',table:'mixed_srid',geometry_column:'geom'}}); } catch (error) { mixedSridError=String(error); }
+    assert(mixedSridError.includes('SRID'), '有界导入批次中混合SRID必须明确拒绝');
+    check('真实PostGIS读取选中几何列保留CRS及业务属性，特殊Schema与表名安全引用',true);
+    const scoped=await invoke('list_remote_layers',{connection:{...pgConnection,scope:'schema',default_schema:'design'}});
+    assert.deepEqual(scoped.schemas,['design']);assert(scoped.layers.every(l=>l.schema==='design'));
+    const ordinary=await invoke('list_remote_layers',{connection:{...pgConnection,database:'postgres'}});
+    assert.equal(ordinary.layers.length,0);
+    check('真实PostGIS目录默认Schema、多几何列、含点名称、权限隔离、范围过滤及普通PG空目录',true);
+    await click('[aria-label="管理数据连接"]');await clickText('新建连接');await fillConnection('连接名称','PostGIS 目录验证');await fillConnection('主机','127.0.0.1');await fillConnection('数据库',pgConnection.database);await fillConnection('用户','qa_reader');await fillConnection('密码',pgConnection.password);
+    await evaluate("document.querySelector('.connection-manager details').open=true");await fillConnection('端口',pgConnection.port);
+    await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+    await clickText('连接并浏览空间表');await waitFor("Boolean(document.querySelector('[aria-label=\"选择 Schema\"]'))");
+    await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择 Schema\"]');e.value='design';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await waitFor("document.querySelector('[aria-label=\"选择空间表\"]').options.length>=3");
+    assert(await evaluate("[...document.querySelector('[aria-label=\"选择空间表\"]').options].every(o=>!o.value || JSON.parse(o.value)[1]!=='areas')"), '面表不作为路线候选');
+    await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择空间表\"]');e.value=[...e.options].find(o=>o.value && JSON.parse(o.value)[1]==='roads' && JSON.parse(o.value)[2]==='geom').value;e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await screenshot('37-postgis-schema-picker.png');await clickText('添加所选路线图层');await clickText('读取所选路线图层');
+    await waitFor("window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes('PostGIS 目录验证')");
+    assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '读取成功后继续复用当前会话认证');
+    await screenshot('38-postgis-ready-to-read.png');
+    await clickText('刷新空间图层目录');await waitFor("document.querySelector('.source-browser [role=status]')?.innerText.includes('连接成功')");
+    assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"));
+    await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择 Schema\"]');e.value='empty_qa';e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    assert(await evaluate("document.querySelector('[aria-label=\"选择空间表\"]').disabled"));
+    const beforeBadAuthentication=await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())');
+    await clickText('更换认证');
+    const fillSessionPassword=(value)=>evaluate(`(()=>{const e=document.querySelector('.source-browser input[type=password]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await fillSessionPassword('wrong-qa-only');await clickText('刷新空间图层目录');await waitFor("document.querySelector('.source-browser [role=status]')?.innerText.includes('认证失败')");
+    assert(await evaluate("!document.querySelector('[aria-label=\"选择 Schema\"]') && Boolean(document.querySelector('.source-browser input[type=password]'))"));
+    assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())'),beforeBadAuthentication);
+    await fillSessionPassword('qa-session-only');await clickText('连接并浏览空间表');await waitFor("Boolean(document.querySelector('[aria-label=\"选择 Schema\"]'))");
+    check('空Schema阻止误选，目录认证失败清理旧目录且工程不变，重新认证可恢复',true);
+    check('真实PostGIS选择Schema与线表、过滤面图层、读取与刷新复用会话认证',true);
+    await click('[aria-label="管理数据连接"]');await fillConnection('主机','localhost');await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');
+    await waitFor("Boolean(document.querySelector('.source-browser input[type=password]'))");
+    assert.equal(await evaluate("document.querySelector('.source-browser input[type=password]').value"),'');
+    assert(await evaluate("!document.querySelector('[aria-label=\"选择 Schema\"]')"), '连接配置变化后不显示旧目录');
+    check('保存不同目标时要求重新认证，且旧目录失效',true);
+  }
+  if(process.env.ROAD_QA_MYSQL_PORT){
+    await click('[aria-label="管理数据连接"]');await clickText('新建连接');await chooseDatabaseKind('mysql');await fillConnection('连接名称','MySQL 路线库');await fillConnection('主机','127.0.0.1');await fillConnection('数据库','empty_qa');await fillConnection('用户','qa_reader');await fillConnection('密码','qa-session-only');await evaluate("document.querySelector('.connection-manager details').open=true");await fillConnection('端口',Number(process.env.ROAD_QA_MYSQL_PORT));
+    await waitDatabaseTestReady();await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('连接成功')");check('真实MySQL空库连接无需表',true);
+    await fillConnection('数据库','road_qa');await fillConnection('密码','wrong-qa-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('认证失败')");check('真实MySQL认证失败诊断',true);
+    await fillConnection('密码','qa-session-only');await clickText('测试连接');await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('连接成功')");await screenshot('35-mysql-connection.png');
+    await clickText('保存连接');await waitFor('!document.querySelector(".connection-manager")');await click('[aria-label="管理数据连接"]');await click('[aria-label="添加数据源图层"]');await fillConnection('路线表','roads');await clickText('保存路线图层');await waitFor('!document.querySelector(".connection-manager")');
+    await clickText('读取所选路线图层');await waitFor("window.__ROAD_WORKBENCH__.getProject().source_binding?.label.includes('MySQL 路线库')");
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length'),5);check('真实MySQL空间路线读取及投影转换',true);
+    const importedMy=await invoke('import_remote_vector',{connection:{kind:'mysql',host:'127.0.0.1',port:Number(process.env.ROAD_QA_MYSQL_PORT),database:'road_qa',user:'qa_reader',password:'qa-session-only',table:'roads'}});
+    assert(importedMy.collection.features[0].geometry.coordinates.every(([x,y])=>Math.abs(x)<=180&&Math.abs(y)<=90));check('MySQL空间源显示副本为真实WGS84坐标',true);
+  }
+  assert(!(await evaluate("localStorage.getItem('road-data-connections-v1')")).includes('qa-session-only'));
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(databaseProjectBefore)})`);
   await clickText('数据'); await clickText('配置字段映射…');
   await waitFor('document.querySelector(".field-mapping") !== null'); check('完整路线与横断面字段映射入口',true);
   assert(await evaluate('!document.querySelector(".project-details").open'), '项目详情应默认折叠');
@@ -423,18 +628,45 @@ try {
   await waitFor('document.querySelector(".workbench-dialog")?.innerText.includes("选择数据图层")');
   await screenshot('12-layer-selection.png');await clickText('取消');
   await waitFor('!document.querySelector(".workbench-dialog")');check('GeoPackage多图层选择与取消保护',true);
+
+  const beforeLocalLayer=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),source_label:'other-source',source_mapping:{route_id:'missing_old_field'}})`);
+  await click('[aria-label="数据"]');await queueDialog('open',uiGpkgFile);await click('[aria-label="导入本地路线"]');
+  await waitFor('document.querySelector(".workbench-dialog")?.innerText.includes("选择数据图层")');
+  await evaluate(`[...document.querySelectorAll('.route-choice-list button')].find(b=>b.innerText.startsWith('参考线 ·')).click()`);
+  await waitFor('String(window.__ROAD_WORKBENCH__.getProject().source_label).endsWith(" · 参考线")');
+  assert.notEqual(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_mapping.route_id'),'missing_old_field');
+  assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_binding'),null);
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(beforeLocalLayer)})`);
+  check('本地多图层来源标识及解除其他来源字段规则',true);
   await clickText('编辑');await clickText('清除道路成果');
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().output'),null);
   await click('[aria-label="撤销上一步"]');assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getProject().output)'));check('菜单清除成果可撤销恢复',true);
   const beforeMapping=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
-  await evaluate(`window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),source_mapping:{},manual_section:null,source_fields:["qa_count","qa_width","qa_bad"],mapped_attributes:{qa_count:1,qa_width:4.25,qa_bad:"not-a-number"}})`);
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),source_mapping:{},manual_section:null,source_fields:[{name:"qa_count",type:"integer",comment:"车道数量"},{name:"qa_width",type:"numeric",description:"单位为米"},{name:"qa_bad",type:"text",comment:"故意错误值"}],mapped_attributes:{qa_count:1,qa_width:4.25,qa_bad:"not-a-number"}})`);
   await click('[aria-label="数据"]');await clickText('数据');await clickText('配置字段映射…');
   await evaluate('(()=>{const e=[...document.querySelectorAll(".field-mapping__grid label")].find(l=>l.innerText.startsWith("左侧车道数")).querySelector("select");e.value="qa_count";e.dispatchEvent(new Event("change",{bubbles:true}));})()');
   await waitFor('window.__ROAD_WORKBENCH__.getProject().section.left_lanes.length===1');
   await evaluate('(()=>{const e=[...document.querySelectorAll(".field-mapping__grid label")].find(l=>l.innerText.startsWith("左侧车道宽度")).querySelector("select");e.value="qa_width";e.dispatchEvent(new Event("change",{bubbles:true}));})()');
   await waitFor('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]===4.25');
   await evaluate('(()=>{const e=[...document.querySelectorAll(".field-mapping__grid label")].find(l=>l.innerText.startsWith("左侧车道宽度")).querySelector("select");e.value="qa_bad";e.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  await waitFor('window.__ROAD_WORKBENCH__.getProject().source_mapping.left_lane_width==="qa_bad"');
+  assert((await evaluate('[...document.querySelectorAll(".field-mapping__grid label")].find(l=>l.innerText.startsWith("左侧车道宽度")).innerText')).includes("故意错误值"));
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'),4.25);check('横断面字段映射进入输入并拒绝无效数值',true);
+
+  await evaluate(`(()=>{const c=JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库'),l=c.layers.find(l=>l.schema==='design');window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),manual_section:null,source_mapping:{},source_fields:['route_id','left_lane_count','left_lane_width'],mapped_attributes:{route_id:'QA-RULE',left_lane_count:1,left_lane_width:4.25},source_binding:{connectionId:c.id,layerId:l.id,label:c.name+' / '+l.name,fingerprint:JSON.stringify([c.kind,c.config,l.schema,l.table,l.geometry_column,l.type_name])}});})()`);
+  await waitFor('Boolean([...document.querySelectorAll("button")].find(b=>b.innerText==="自动识别字段"))');
+  assert(!(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_mapping.left_lane_width')));
+  await clickText('自动识别字段');await waitFor('window.__ROAD_WORKBENCH__.getProject().route_id==="QA-RULE"');
+  assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'),4.25);
+  const ruleInputVersion=await evaluate('window.__ROAD_WORKBENCH__.getProject().input_version');
+  await clickText('保存此图层规则');
+  await waitFor('document.body.innerText.includes("已保存此图层的字段规则")');
+  assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().input_version'),ruleInputVersion);
+  const layerRules=await evaluate(`JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库').layers`);
+  assert.equal(layerRules.find(l=>l.schema==='design').mapping.left_lane_width,'left_lane_width');
+  assert.equal(layerRules.find(l=>l.schema==='public').mapping,undefined);
+  check('显式自动识别、映射应用及同数据库不同Schema规则隔离',true);
   await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(beforeMapping)})`);await click('[aria-label="道路"]');
   const beforeLegacyBackground=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
   const legacyBackgroundFile=path.join(outputDirectory,'legacy-vector-background.json');
@@ -469,7 +701,7 @@ try {
   }
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   await click('[aria-label="数据"]');
-  await evaluate('document.querySelectorAll(".data-panel details").forEach(e=>e.open=false);document.querySelector(".panel-content").scrollTop=0');
+  await evaluate('document.querySelectorAll(".data-panel details").forEach(e=>e.open=e.classList.contains("data-source-primary"));document.querySelector(".panel-content").scrollTop=0');
   await click('[aria-label="折叠检查器"]');
   await waitFor('getComputedStyle(document.querySelector(".inspector")).display === "none"');
   await new Promise(resolve=>setTimeout(resolve,300));
@@ -484,4 +716,9 @@ try {
   await screenshot('failure.png').catch(() => {});
   await fs.writeFile(path.join(outputDirectory, 'report.json'), JSON.stringify({ passed: false, checks, error: String(error), browserErrors }, null, 2));
   throw error;
-} finally { if(originalLayout!==undefined) await evaluate(`localStorage.${originalLayout===null?'removeItem("road-workbench-layout")':`setItem("road-workbench-layout",${JSON.stringify(originalLayout)})`}`).catch(()=>{}); socket.close(); }
+} finally {
+  // 此脚本由独立 WebView2 验证目录启动，仅清理该目录生成的合成连接凭据。
+  await evaluate(`(async()=>{const rows=JSON.parse(localStorage.getItem('road-data-connections-v1')||'{"connections":[]}').connections;for(const row of rows)await window.__TAURI_INTERNALS__.invoke('delete_connection_password',{connectionId:row.id});})()`).catch(()=>{});
+  if(originalLayout!==undefined) await evaluate(`localStorage.${originalLayout===null?'removeItem("road-workbench-layout")':`setItem("road-workbench-layout",${JSON.stringify(originalLayout)})`}`).catch(()=>{});
+  socket.close();
+}

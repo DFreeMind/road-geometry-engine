@@ -59,15 +59,29 @@
 .field-mapping__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
+  gap: 8px;
 }
 
-.source-tools label,
-.field-mapping__grid label {
+.source-tools label {
   display: grid;
   gap: 5px;
   min-width: 0;
   color: var(--text, #243240);
+}
+
+.field-mapping__row {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border, #d9e1e8);
+  border-radius: 9px;
+  background: var(--panel, #fff);
+}
+
+.field-mapping__target {
+  color: var(--text, #243240);
+  font-weight: 600;
 }
 
 .source-tools input,
@@ -112,6 +126,31 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--surface, #f1f4f7);
+}
+
+.field-mapping__fallback input {
+  margin: 0;
+}
+
+.field-mapping__field-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: var(--muted, #667684);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.field-mapping__field-meta code {
+  color: var(--text, #243240);
+}
+
+.field-mapping__field-meta span:last-child {
+  flex-basis: 100%;
 }
 
 .field-mapping__preview {
@@ -135,4 +174,403 @@
   .field-mapping__grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* 数据源是首要入口，统一使用紧凑分组而非重复卡片标题。 */
+.source-tools {
+  border: 0;
+  padding: 12px 0 0;
+  border-radius: 0;
+  gap: 12px;
+}
+.source-tools__tabs {
+  width: 100%;
+  box-sizing: border-box;
+}
+.source-tools__tabs button {
+  flex: 1;
+  min-height: 34px;
+  font-weight: 600;
+  padding: 7px 4px;
+}
+.source-tools__tabs button[aria-selected="true"] {
+  color: #175fa6;
+  background: #fff;
+}
+.source-tools__fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+.source-tools__advanced {
+  border-top: 1px solid #e6edf4;
+  padding-top: 9px;
+}
+.source-tools__advanced summary {
+  cursor: pointer;
+  color: #47617d;
+  font-weight: 500;
+  font-size: 12px;
+}
+.source-tools__advanced summary span {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #687c92;
+  font-weight: 400;
+}
+.source-tools__advanced[open] .source-tools__grid {
+  margin-top: 10px;
+}
+.source-tools__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  align-items: stretch;
+  gap: 6px;
+}
+.source-tools__primary {
+  width: 100%;
+  min-height: 36px;
+  font-weight: 600;
+}
+.source-tools__note {
+  font-size: 11px;
+  text-align: center;
+}
+.source-tools__footer > span {
+  overflow-wrap: anywhere;
+  padding: 7px 9px;
+  background: #f2f6fa;
+  border-radius: 6px;
+}
+.source-tools button:focus-visible,
+.source-tools summary:focus-visible {
+  outline: 2px solid #2c82dc;
+  outline-offset: 2px;
+}
+.data-panel .data-source-primary {
+  margin-top: 0;
+  padding-bottom: 16px;
+}
+.data-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.data-secondary-actions > button:last-child {
+  grid-column: 1 / -1;
+}
+
+/* 主面板按认证、浏览目录和读取分步组织；连接配置集中到管理窗口。 */
+.source-browser__catalog {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.source-browser__directory > summary {
+  cursor: pointer;
+  color: var(--muted, #667684);
+  padding: 6px 0;
+}
+.source-browser__catalog:empty {
+  display: none;
+}
+.source-browser__authentication {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border, #d9e1e8);
+  border-radius: 8px;
+}
+.source-browser__authentication small {
+  color: var(--muted, #667684);
+  line-height: 1.5;
+}
+.source-browser__manual {
+  border: 0;
+  background: transparent;
+  color: var(--muted, #667684);
+  cursor: pointer;
+  font: inherit;
+  padding: 5px;
+}
+.source-browser__more {
+  color: var(--muted, #667684);
+  font-size: 12px;
+}
+.source-browser__more summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.source-browser__more .source-browser__manual {
+  display: block;
+  margin-top: 4px;
+}
+.source-browser {
+  gap: 11px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.source-browser__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.source-browser__heading > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #255e96;
+}
+.source-browser__heading button,
+.connection-manager__actions button,
+.field-mapping__actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #dce6ef;
+  border-radius: 6px;
+  background: #f8fbfe;
+  color: #355878;
+  padding: 6px 9px;
+  cursor: pointer;
+  font: inherit;
+}
+.source-browser__context {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 9px;
+  background: #f3f7fb;
+  border-radius: 6px;
+  color: #5c7085;
+  font-size: 11px;
+}
+.source-browser__context svg {
+  flex-shrink: 0;
+}
+.source-browser__context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.source-browser__hint {
+  font-size: 11px;
+}
+.source-browser__empty {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 20px 12px;
+  border: 1px dashed #cbdcec;
+  border-radius: 8px;
+  background: #f7fafe;
+  text-align: center;
+  color: #4979a5;
+}
+.source-browser__empty p {
+  font-size: 12px;
+}
+.source-browser__empty button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.source-browser__status {
+  overflow-wrap: anywhere;
+  padding: 8px;
+  background: #f4f7fb;
+  border-radius: 6px;
+}
+.connection-manager {
+  width: min(760px, calc(100vw - 48px));
+  border: 0;
+  padding: 0;
+  margin: auto;
+}
+.connection-manager::backdrop {
+  background: #13263e66;
+}
+.connection-manager .dialog-title p {
+  margin: 5px 0 0;
+  color: #63778d;
+  font-size: 12px;
+}
+.connection-manager__body {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.connection-manager__list {
+  border-right: 1px solid #e2eaf2;
+  padding: 14px;
+  background: #f6f9fc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.connection-manager__list > button {
+  width: 100%;
+}
+.connection-item {
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+.connection-item.active {
+  border-color: #c9ddf2;
+  background: white;
+}
+.connection-item > button {
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 10px;
+  cursor: pointer;
+  color: #364f69;
+  text-align: left;
+  font: inherit;
+}
+.connection-item > button span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.connection-item strong,
+.connection-item small {
+  overflow-wrap: anywhere;
+}
+.connection-item small {
+  color: #647990;
+  font-size: 11px;
+}
+.connection-item > .connection-layer {
+  padding: 7px 10px 7px 32px;
+  color: #657d95;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.connection-item > .connection-layer.active {
+  color: #1668b7;
+  background: #edf5fd;
+}
+.connection-manager__editor {
+  padding: 16px 20px;
+  min-width: 0;
+}
+.connection-manager__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.connection-manager__actions > strong {
+  margin-right: auto;
+  font-size: 13px;
+}
+.connection-manager .source-tools {
+  font-size: 13px;
+}
+.connection-delete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: #fff3ef;
+  padding: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.connection-delete button {
+  border: 1px solid #edcec3;
+  border-radius: 5px;
+  padding: 5px 8px;
+  background: white;
+  cursor: pointer;
+}
+.field-mapping__context {
+  padding: 7px 9px;
+  font-size: 11px;
+  color: #496b8b;
+  border-radius: 6px;
+  background: #f2f7fc;
+  overflow-wrap: anywhere;
+}
+.field-mapping__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.mapping-summary {
+  float: right;
+  color: #72859a;
+  font-size: 11px;
+  font-weight: 400;
+}
+.connection-manager button:focus-visible {
+  outline: 2px solid #3084d7;
+  outline-offset: 2px;
+}
+@media (max-width: 680px) {
+  .connection-manager__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connection-manager__list {
+    border-right: 0;
+    border-bottom: 1px solid #e2eaf2;
+    max-height: 160px;
+    overflow: auto;
+  }
+}
+
+.connection-manager .source-tools__footer {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  padding-top: 9px;
+  padding-bottom: 6px;
+  border-top: 1px solid #e6edf4;
+}
+.connection-manager__error {
+  margin: 0;
+  padding: 8px 20px;
+  color: #a1492b;
+  background: #fff3ed;
+}
+
+.connection-manager .source-tools__footer {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.connection-manager .source-tools__footer > button {
+  min-height: 36px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.connection-manager .source-tools__footer > p,
+.connection-manager .source-tools__footer > span {
+  grid-column: 1 / -1;
+}
+
+.source-tools label.source-tools__remember {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.source-tools__remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
 }
