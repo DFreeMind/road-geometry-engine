@@ -1,14 +1,13 @@
 use geo::{algorithm::Area, BooleanOps, Coord, LineString, Polygon};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read, Write};
 use std::time::Instant;
 
 mod scene;
 
 const RULE_VERSION: &str = "0.1.0";
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const MAX_POINTS: usize = 2_000;
 const MAX_COMPONENTS: usize = 64;
 const MAX_TOTAL_WIDTH_M: f64 = 200.0;
 const EPS: f64 = 1.0e-9;
@@ -49,11 +48,74 @@ struct Component {
 }
 
 fn main() {
-    match run() {
+    if std::env::args().nth(1).as_deref() == Some("--stream") {
+        let stdin = io::stdin();
+        let stdout = io::stdout();
+        if let Err(error) = process_stream(stdin.lock(), stdout.lock()) {
+            eprintln!("road-geometry-engine: stream I/O failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    let result = run();
+    match result {
         Ok(response) => println!("{}", response),
         Err(error) => {
             eprintln!("road-geometry-engine: {error}");
             std::process::exit(1);
+        }
+    }
+}
+
+fn process_stream<R: BufRead, W: Write>(mut reader: R, mut writer: W) -> io::Result<()> {
+    let mut line = Vec::new();
+    while let Some(too_large) = read_stream_line(&mut reader, &mut line)? {
+        let envelope = if too_large {
+            json!({"error": format!("request line exceeds {MAX_INPUT_BYTES} bytes")})
+        } else {
+            let result = serde_json::from_slice::<Request>(&line)
+                .map_err(|error| format!("invalid request JSON: {error}"))
+                .and_then(|request| generate(request, Instant::now()));
+            match result {
+                Ok(response) => json!({"response": response}),
+                Err(error) => json!({"error": error}),
+            }
+        };
+        serde_json::to_writer(&mut writer, &envelope)?;
+        writer.write_all(b"\n")?;
+    }
+    writer.flush()
+}
+
+// 只保留单行请求上限内的字节；超限后持续消费到换行，避免污染下一条请求。
+fn read_stream_line<R: BufRead>(reader: &mut R, output: &mut Vec<u8>) -> io::Result<Option<bool>> {
+    output.clear();
+    let mut too_large = false;
+    let mut saw_bytes = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(saw_bytes.then_some(too_large));
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(available.len(), |index| index + 1);
+        let content_len = newline.unwrap_or(consumed);
+        saw_bytes = true;
+        if !too_large {
+            let remaining = MAX_INPUT_BYTES.saturating_sub(output.len());
+            if content_len > remaining {
+                too_large = true;
+                output.clear();
+            } else {
+                output.extend_from_slice(&available[..content_len]);
+            }
+        }
+        reader.consume(consumed);
+        if newline.is_some() {
+            if output.last() == Some(&b'\r') {
+                output.pop();
+            }
+            return Ok(Some(too_large));
         }
     }
 }
@@ -80,9 +142,6 @@ fn generate(request: Request, started: Instant) -> Result<Value, String> {
     }
     if request.points.len() < 2 {
         return Err("points must contain at least two coordinates".into());
-    }
-    if request.points.len() > MAX_POINTS {
-        return Err(format!("points exceed the limit of {MAX_POINTS}"));
     }
     let mut points = Vec::with_capacity(request.points.len());
     for (i, point) in request.points.iter().enumerate() {
@@ -496,27 +555,76 @@ fn distance(a: Coord, b: Coord) -> f64 {
 }
 
 fn polyline_self_intersects(line: &[[f64; 2]]) -> bool {
-    for i in 0..line.len().saturating_sub(1) {
-        for j in (i + 2)..line.len().saturating_sub(1) {
-            if segments_intersect(line[i], line[i + 1], line[j], line[j + 1]) {
-                return true;
-            }
-        }
-    }
-    false
+    segments_self_intersect(line, false)
 }
 
 fn polygon_self_intersects(ring: &[[f64; 2]]) -> bool {
-    let segment_count = ring.len().saturating_sub(1);
-    for i in 0..segment_count {
-        for j in (i + 2)..segment_count {
-            if i == 0 && j + 1 == segment_count {
-                continue; // The first and final ring edges meet by design.
+    segments_self_intersect(ring, true)
+}
+
+#[derive(Clone, Copy)]
+struct SegmentBounds {
+    index: usize,
+    a: [f64; 2],
+    b: [f64; 2],
+    min_scan: f64,
+    max_scan: f64,
+    min_cross: f64,
+    max_cross: f64,
+}
+
+// 沿整体跨度较大的坐标轴扫描，避免横向或纵向长路线退化为全量两两相交。
+fn segments_self_intersect(points: &[[f64; 2]], closed: bool) -> bool {
+    let segment_count = points.len().saturating_sub(1);
+    let Some(first) = points.first() else {
+        return false;
+    };
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (first[0], first[0], first[1], first[1]);
+    for point in &points[1..] {
+        min_x = min_x.min(point[0]);
+        max_x = max_x.max(point[0]);
+        min_y = min_y.min(point[1]);
+        max_y = max_y.max(point[1]);
+    }
+    let scan_y = max_y - min_y > max_x - min_x;
+    let mut segments = Vec::with_capacity(segment_count);
+    for index in 0..segment_count {
+        let a = points[index];
+        let b = points[index + 1];
+        let (scan_axis, cross_axis) = if scan_y { (1, 0) } else { (0, 1) };
+        segments.push(SegmentBounds {
+            index,
+            a,
+            b,
+            min_scan: a[scan_axis].min(b[scan_axis]),
+            max_scan: a[scan_axis].max(b[scan_axis]),
+            min_cross: a[cross_axis].min(b[cross_axis]),
+            max_cross: a[cross_axis].max(b[cross_axis]),
+        });
+    }
+    segments.sort_by(|a, b| a.min_scan.total_cmp(&b.min_scan));
+
+    let mut active: Vec<SegmentBounds> = Vec::new();
+    for segment in segments {
+        active.retain(|candidate| candidate.max_scan + EPS >= segment.min_scan);
+        for candidate in &active {
+            let adjacent = candidate.index.abs_diff(segment.index) <= 1;
+            let ring_closure = closed
+                && candidate.index.min(segment.index) == 0
+                && candidate.index.max(segment.index) + 1 == segment_count;
+            if adjacent || ring_closure {
+                continue;
             }
-            if segments_intersect(ring[i], ring[i + 1], ring[j], ring[j + 1]) {
+            if candidate.max_cross + EPS < segment.min_cross
+                || segment.max_cross + EPS < candidate.min_cross
+            {
+                continue;
+            }
+            if segments_intersect(candidate.a, candidate.b, segment.a, segment.b) {
                 return true;
             }
         }
+        active.push(segment);
     }
     false
 }
@@ -540,6 +648,7 @@ fn segments_intersect(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     fn request(points: Vec<[f64; 2]>) -> Request {
         Request {
@@ -560,6 +669,27 @@ mod tests {
                 right_slope_width: 2.0,
             },
         }
+    }
+
+    fn encoded_request(points: Vec<[f64; 2]>) -> String {
+        serde_json::to_string(&json!({
+            "route_id": "R1",
+            "points": points,
+            "crs": "EPSG:32610",
+            "source": "survey",
+            "section": {
+                "left_lanes": [3.5, 3.5],
+                "right_lanes": [3.5, 3.5],
+                "median_width": 2.0,
+                "left_emergency_width": 1.0,
+                "right_emergency_width": 1.0,
+                "left_shoulder_width": 1.0,
+                "right_shoulder_width": 1.0,
+                "left_slope_width": 2.0,
+                "right_slope_width": 2.0
+            }
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -616,6 +746,126 @@ mod tests {
             Instant::now(),
         );
         assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn complete_route_above_two_thousand_points_is_preserved() {
+        let points: Vec<[f64; 2]> = (0..2_501).map(|index| [index as f64, 0.0]).collect();
+        let result = generate(request(points), Instant::now()).unwrap();
+        let features = result["feature_collection"]["features"].as_array().unwrap();
+        let ring = features[0]["geometry"]["coordinates"][0]
+            .as_array()
+            .unwrap();
+        assert_eq!(ring.len(), 5_003);
+        assert_eq!(ring[0], json!([0.0, -1.0]));
+        assert_eq!(ring[2_500], json!([2_500.0, -1.0]));
+    }
+
+    #[test]
+    fn long_curved_asymmetric_route_keeps_all_vertices() {
+        let mut req = request(
+            (0..2_501)
+                .map(|index| {
+                    let x = index as f64 * 5.0;
+                    [x, (x / 300.0).sin() * 18.0]
+                })
+                .collect(),
+        );
+        req.section.left_lanes = vec![4.1, 3.2];
+        req.section.right_lanes = vec![3.0];
+        req.section.median_width = 1.6;
+        let result = generate(req, Instant::now()).unwrap();
+        let features = result["feature_collection"]["features"].as_array().unwrap();
+        let ring = features[0]["geometry"]["coordinates"][0]
+            .as_array()
+            .unwrap();
+        assert_eq!(ring.len(), 5_003);
+        assert!(result["route_length_m"].as_f64().unwrap() > 12_500.0);
+    }
+
+    #[test]
+    fn long_north_south_route_uses_complete_geometry() {
+        let points: Vec<[f64; 2]> = (0..10_001).map(|index| [0.0, index as f64]).collect();
+        assert!(!polyline_self_intersects(&points));
+        let result = generate(request(points), Instant::now()).unwrap();
+        let ring = result["feature_collection"]["features"][0]["geometry"]["coordinates"][0]
+            .as_array()
+            .unwrap();
+        assert_eq!(ring.len(), 20_003);
+    }
+
+    #[test]
+    fn sweep_matches_naive_intersection_checks_for_open_and_closed_samples() {
+        let samples: Vec<(Vec<[f64; 2]>, bool)> = vec![
+            (vec![[0.0, 0.0], [0.0, 3.0], [1.0, 6.0], [0.0, 9.0]], false),
+            (vec![[0.0, 0.0], [4.0, 4.0], [0.0, 4.0], [4.0, 0.0]], false),
+            (
+                vec![[0.0, 0.0], [5.0, 0.0], [5.0, 5.0], [0.0, 5.0], [0.0, 0.0]],
+                true,
+            ),
+            (
+                vec![[0.0, 0.0], [4.0, 4.0], [0.0, 4.0], [4.0, 0.0], [0.0, 0.0]],
+                true,
+            ),
+        ];
+        for (points, closed) in samples {
+            assert_eq!(
+                segments_self_intersect(&points, closed),
+                naive_self_intersects(&points, closed),
+                "points={points:?}, closed={closed}"
+            );
+        }
+    }
+
+    fn naive_self_intersects(points: &[[f64; 2]], closed: bool) -> bool {
+        let segment_count = points.len().saturating_sub(1);
+        for i in 0..segment_count {
+            for j in (i + 2)..segment_count {
+                if closed && i == 0 && j + 1 == segment_count {
+                    continue;
+                }
+                if segments_intersect(points[i], points[i + 1], points[j], points[j + 1]) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn stream_keeps_processing_after_a_bad_request() {
+        let valid = encoded_request(vec![[0.0, 0.0], [100.0, 0.0]]);
+        let input = format!("{valid}\n{{bad json}}\n{valid}\n");
+        let mut output = Vec::new();
+        process_stream(Cursor::new(input), &mut output).unwrap();
+        let lines: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0]["response"]["feature_count"].is_number());
+        assert!(lines[1]["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid request JSON"));
+        assert!(lines[2]["response"]["feature_count"].is_number());
+    }
+
+    #[test]
+    fn oversized_stream_line_is_discarded_without_corrupting_next_request() {
+        let valid = encoded_request(vec![[0.0, 0.0], [100.0, 0.0]]);
+        let input = format!("{}\n{valid}\n", " ".repeat(MAX_INPUT_BYTES + 1));
+        let mut output = Vec::new();
+        process_stream(Cursor::new(input), &mut output).unwrap();
+        let lines: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0]["error"].as_str().unwrap().contains("exceeds"));
+        assert!(lines[1]["response"]["feature_count"].is_number());
     }
 
     #[test]

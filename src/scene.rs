@@ -2,7 +2,6 @@ use crate::{distance, offset_line, Coord, Section};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-const MAX_SCENE_FEATURES: usize = 10_000;
 const MAX_SCENE_OFFSET_M: f64 = 100.0;
 const MAX_SCENE_SPACING_M: f64 = 10_000.0;
 const EPS: f64 = 1.0e-9;
@@ -116,10 +115,12 @@ pub(crate) fn build_ancillary_layers(
         spacing_m: options.spacing_m,
         offset_m: options.offset_m,
     };
-    let route_length = route
-        .windows(2)
-        .map(|pair| distance(pair[0], pair[1]))
-        .sum::<f64>();
+    let mut cumulative = Vec::with_capacity(route.len());
+    cumulative.push(0.0);
+    for pair in route.windows(2) {
+        cumulative.push(cumulative.last().copied().unwrap() + distance(pair[0], pair[1]));
+    }
+    let route_length = *cumulative.last().unwrap();
     if !route_length.is_finite() || route_length <= EPS {
         return Err("scene route has invalid length".into());
     }
@@ -127,25 +128,29 @@ pub(crate) fn build_ancillary_layers(
         .iter()
         .filter(|kind| point_kinds.contains(&kind.as_str()))
         .count();
-    let intervals = (route_length / options.spacing_m).floor();
-    if !intervals.is_finite() || intervals > MAX_SCENE_FEATURES as f64 {
-        return Err(format!(
-            "scene feature count exceeds the limit of {MAX_SCENE_FEATURES}"
-        ));
-    }
-    let intervals = intervals as usize;
-    let station_count = intervals
-        .checked_add(1 + usize::from(intervals as f64 * options.spacing_m < route_length - 1.0e-8))
-        .ok_or_else(|| "scene station count overflow".to_string())?;
-    let requested_points = station_count
-        .checked_mul(sides.len())
-        .and_then(|count| count.checked_mul(selected_point_kinds))
-        .ok_or_else(|| "scene point count overflow".to_string())?;
-    if requested_points > MAX_SCENE_FEATURES {
-        return Err(format!(
-            "scene feature count exceeds the limit of {MAX_SCENE_FEATURES}"
-        ));
-    }
+    let station_count = if selected_point_kinds == 0 {
+        0
+    } else {
+        let intervals = (route_length / options.spacing_m).floor();
+        if !intervals.is_finite() || intervals >= usize::MAX as f64 - 2.0 {
+            return Err("scene station count exceeds the addressable resource limit".into());
+        }
+        let intervals = intervals as usize;
+        let station_count = intervals
+            .checked_add(
+                1 + usize::from(intervals as f64 * options.spacing_m < route_length - 1.0e-8),
+            )
+            .ok_or_else(|| "scene station count overflow".to_string())?;
+        if station_count as f64 >= 9_007_199_254_740_992.0 {
+            return Err("scene station count exceeds floating-point station resolution".into());
+        }
+        let requested_points = station_count
+            .checked_mul(sides.len())
+            .and_then(|count| count.checked_mul(selected_point_kinds))
+            .ok_or_else(|| "scene point count overflow".to_string())?;
+        let _ = requested_points;
+        station_count
+    };
 
     // 预先计算所有需要的偏移线，任何一条失败都拒绝整组结果。
     let mut offsets: Vec<(f64, Vec<[f64; 2]>)> = Vec::new();
@@ -159,7 +164,6 @@ pub(crate) fn build_ancillary_layers(
     };
 
     let mut layers = Vec::new();
-    let mut produced_features = 0usize;
     for kind in [
         "markings",
         "guardrail",
@@ -251,9 +255,16 @@ pub(crate) fn build_ancillary_layers(
                         side_sign(side) * (side_width(widths, side) + options.offset_m);
                     let line = get_offset(reference_offset)?;
                     ensure_line(&line, kind, reference_offset)?;
+                    let mut previous_station = -1.0;
                     for index in 0..station_count {
                         let station = (index as f64 * options.spacing_m).min(route_length);
-                        let point = offset_point_at_station(route, &line, station)?;
+                        if station <= previous_station {
+                            return Err(
+                                "scene station spacing no longer advances in floating point".into(),
+                            );
+                        }
+                        previous_station = station;
+                        let point = offset_point_at_station(route, &line, &cumulative, station)?;
                         features.push(point_feature(
                             &context,
                             kind,
@@ -265,19 +276,6 @@ pub(crate) fn build_ancillary_layers(
                     }
                 }
             }
-        }
-        if features.len() > MAX_SCENE_FEATURES {
-            return Err(format!(
-                "scene feature count exceeds the limit of {MAX_SCENE_FEATURES}"
-            ));
-        }
-        produced_features = produced_features
-            .checked_add(features.len())
-            .ok_or_else(|| "scene feature count overflow".to_string())?;
-        if produced_features > MAX_SCENE_FEATURES {
-            return Err(format!(
-                "scene feature count exceeds the limit of {MAX_SCENE_FEATURES}"
-            ));
         }
         if features.is_empty() {
             return Err(format!("scene layer {kind} did not produce any features"));
@@ -347,31 +345,28 @@ fn side_sign(side: &str) -> f64 {
 fn offset_point_at_station(
     route: &[Coord],
     offset: &[[f64; 2]],
+    cumulative: &[f64],
     station: f64,
 ) -> Result<[f64; 2], String> {
-    if route.len() != offset.len() {
+    if route.len() != offset.len() || route.len() != cumulative.len() {
         return Err("offset line does not correspond to route vertices".into());
     }
-    let mut remaining = station;
-    for index in 0..route.len() - 1 {
-        let segment_length = distance(route[index], route[index + 1]);
-        if !segment_length.is_finite() || segment_length <= EPS {
-            return Err(format!("route contains a zero-length segment at {index}"));
-        }
-        if remaining <= segment_length || index == route.len() - 2 {
-            let fraction = (remaining / segment_length).clamp(0.0, 1.0);
-            let point = [
-                offset[index][0] + (offset[index + 1][0] - offset[index][0]) * fraction,
-                offset[index][1] + (offset[index + 1][1] - offset[index][1]) * fraction,
-            ];
-            if point.iter().all(|value| value.is_finite()) {
-                return Ok(point);
-            }
-            return Err(format!("offset point at station {station} is not finite"));
-        }
-        remaining -= segment_length;
+    let end_index = cumulative.partition_point(|distance| *distance < station);
+    let index = end_index.saturating_sub(1).min(route.len() - 2);
+    let segment_length = cumulative[index + 1] - cumulative[index];
+    if !segment_length.is_finite() || segment_length <= EPS {
+        return Err(format!("route contains a zero-length segment at {index}"));
     }
-    Err(format!("cannot locate scene station {station}"))
+    let fraction = ((station - cumulative[index]) / segment_length).clamp(0.0, 1.0);
+    let point = [
+        offset[index][0] + (offset[index + 1][0] - offset[index][0]) * fraction,
+        offset[index][1] + (offset[index + 1][1] - offset[index][1]) * fraction,
+    ];
+    if point.iter().all(|value| value.is_finite()) {
+        Ok(point)
+    } else {
+        Err(format!("offset point at station {station} is not finite"))
+    }
 }
 
 fn ensure_line(line: &[[f64; 2]], kind: &str, offset: f64) -> Result<(), String> {
@@ -617,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_enable_station_and_point_count_are_rejected() {
+    fn invalid_enable_and_spacing_are_rejected_and_large_point_sets_are_complete() {
         let mut invalid = options(&["not-a-facility"]);
         assert!(build_ancillary_layers(
             "R1",
@@ -640,17 +635,17 @@ mod tests {
         )
         .is_err());
         invalid.spacing_m = 0.1;
-        let long_route = vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1000.0, y: 0.0 }];
-        assert!(build_ancillary_layers(
+        let long_route = vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1100.0, y: 0.0 }];
+        let layers = build_ancillary_layers(
             "R1",
             &long_route,
             &section(),
             &invalid,
             "survey",
-            "EPSG:32650"
+            "EPSG:32650",
         )
-        .unwrap_err()
-        .contains("exceeds the limit"));
+        .unwrap();
+        assert_eq!(features(&layers, "路灯").len(), 22_002);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Feature, LineString, MultiLineString } from "geojson";
 import type { SourceCapabilities } from "./sourceAccess";
+import { streamSourcePages } from "./sourceAccess";
 import { compileRouteFilter } from "./routeFilterExpression";
+import { defaultRouteColumnSelection } from "./routeColumnSelection";
 import "./RouteFeatureSelector.css";
 
 export type RouteFeature = Feature<LineString | MultiLineString>;
@@ -25,6 +27,14 @@ type SourceField =
       comment?: string | null;
       description?: string | null;
     };
+type ReadProgress = {
+  pages: number;
+  loaded: number;
+  nextOffset: number;
+  hasMore: boolean;
+  cancelled?: boolean;
+  failed?: boolean;
+};
 
 export function filterRouteFeatures(
   features: RouteFeature[],
@@ -43,6 +53,7 @@ export function filterRouteFeatures(
       : [];
   });
 }
+
 export function routeFeaturePage(
   indexes: number[],
   page: number,
@@ -51,16 +62,25 @@ export function routeFeaturePage(
   const start = Math.max(0, page) * Math.max(1, pageSize);
   return indexes.slice(start, start + Math.max(1, pageSize));
 }
+
 function cellValue(value: unknown): string {
   if (value == null) return "NULL";
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
+
+function routeFeatures(features: RouteFeature[]): RouteFeature[] {
+  return features.filter((feature) =>
+    ["LineString", "MultiLineString"].includes(feature.geometry?.type),
+  );
+}
+
 export function RouteFeatureSelector({
   features: initialFeatures,
   fields: sourceFields = [],
   sourceLabel = "当前数据源",
   capabilities,
   onRead,
+  onReadBatch,
   onCancel,
   loadPage,
   pageInfo,
@@ -68,6 +88,7 @@ export function RouteFeatureSelector({
   features: RouteFeature[];
   fields?: SourceField[];
   onRead: (features: RouteFeature[]) => void;
+  onReadBatch?: (features: RouteFeature[], final: boolean) => Promise<void>;
   onCancel: () => void;
   loadPage?: RoutePageLoad;
   pageInfo?: PageInfo;
@@ -75,7 +96,7 @@ export function RouteFeatureSelector({
   capabilities?: SourceCapabilities;
 }) {
   const [batch, setBatch] = useState(() => ({
-    features: initialFeatures,
+    features: routeFeatures(initialFeatures),
     ...(pageInfo ?? {
       offset: 0,
       limit: initialFeatures.length,
@@ -84,19 +105,39 @@ export function RouteFeatureSelector({
     }),
   }));
   const features = batch.features;
+  // 文件来源只显示文件名与图层名，完整路径保留在提示中，避免挤占读取状态。
+  const displaySourceLabel = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(sourceLabel)
+    ? sourceLabel.slice(
+        Math.max(sourceLabel.lastIndexOf("/"), sourceLabel.lastIndexOf("\\")) +
+          1,
+      )
+    : sourceLabel;
   const [serverDraft, setServerDraft] = useState(batch.expression);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
   const [serverError, setServerError] = useState("");
+  const [submitError, setSubmitError] = useState("");
   const alive = useRef(true);
-  const requestId = useRef(0);
+  const allReadRef = useRef<{ cancelled: boolean } | null>(null);
   const requestInFlight = useRef(false);
+  const [allReadProgress, setAllReadProgress] = useState<ReadProgress>(() => ({
+    pages: 0,
+    loaded: routeFeatures(initialFeatures).length,
+    nextOffset: (pageInfo?.offset ?? 0) + (pageInfo?.limit ?? 0),
+    hasMore: pageInfo?.hasMore ?? false,
+  }));
+  const [capabilitiesOverride, setCapabilitiesOverride] =
+    useState<SourceCapabilities>();
+
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
-      requestId.current++;
+      if (allReadRef.current) allReadRef.current.cancelled = true;
     };
   }, []);
+
   const [field, setField] = useState("*");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"simple" | "expression">("simple");
@@ -104,6 +145,8 @@ export function RouteFeatureSelector({
   const [expression, setExpression] = useState("");
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [onlySelected, setOnlySelected] = useState(false);
   const [selectedRows, setSelectedRows] = useState(
     new Map<number, RouteFeature>(),
   );
@@ -111,10 +154,10 @@ export function RouteFeatureSelector({
     () =>
       new Set(
         features.flatMap((_, index) =>
-          selectedRows.has(batch.offset + index) ? [index] : [],
+          selectedRows.has(index) ? [index] : [],
         ),
       ),
-    [features, batch.offset, selectedRows],
+    [features, selectedRows],
   );
   function setSelected(
     recipe: Set<number> | ((current: Set<number>) => Set<number>),
@@ -122,21 +165,22 @@ export function RouteFeatureSelector({
     const next = typeof recipe === "function" ? recipe(selected) : recipe;
     const rows = new Map(selectedRows);
     features.forEach((feature, index) => {
-      const key = batch.offset + index;
-      if (next.has(index)) rows.set(key, feature);
-      else rows.delete(key);
+      if (next.has(index)) rows.set(index, feature);
+      else rows.delete(index);
     });
-    if (rows.size > 10000) {
-      setServerError(
-        "单次最多选择 10,000 条路线，请缩小数据源读取范围或分层加载。",
-      );
-      return;
-    }
     setSelectedRows(rows);
   }
+
   const [columnSearch, setColumnSearch] = useState("");
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [localFilterOpen, setLocalFilterOpen] = useState(false);
+  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const columnsTrigger = useRef<HTMLButtonElement>(null);
+  const columnsSearch = useRef<HTMLInputElement>(null);
+  const columnsPanelRef = useRef<HTMLDivElement>(null);
   const expressionInput = useRef<HTMLTextAreaElement>(null);
   const effectiveCapabilities =
+    capabilitiesOverride ??
     capabilities ??
     (loadPage
       ? {
@@ -165,6 +209,7 @@ export function RouteFeatureSelector({
       effectiveCapabilities.query_scope === "source" &&
       effectiveCapabilities.pagination,
   );
+
   const fields = useMemo(() => {
     const entries = new Map(
       sourceFields.map((item) => {
@@ -188,76 +233,258 @@ export function RouteFeatureSelector({
       ),
     [features],
   );
-  const [visible, setVisible] = useState<Set<string>>(() => new Set(names));
-  const columns = fields.filter((item) => visible.has(item.name));
-  const filtered = useMemo(() => {
-    if (mode === "simple") {
-      const needle = deferredQuery.trim().toLocaleLowerCase();
-      if (field === "*")
-        return features.flatMap((_, index) =>
-          !needle || searchText[index].includes(needle) ? [index] : [],
-        );
-      return filterRouteFeatures(features, field, deferredQuery);
-    }
-    const predicate = compileRouteFilter(expression, names);
-    return features.flatMap((feature, index) =>
-      predicate(feature.properties ?? {}) ? [index] : [],
-    );
-  }, [features, field, deferredQuery, searchText, mode, expression, names]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
-  const pageIndexes = routeFeaturePage(
-    filtered,
-    Math.min(page, pageCount - 1),
-    50,
+  const [visible, setVisible] = useState<Set<string>>(() =>
+    defaultRouteColumnSelection(fields),
   );
+  const columns = fields.filter((item) => visible.has(item.name));
+  const matchingColumns = fields.filter((item) =>
+    `${item.name} ${item.comment ?? ""} ${item.description ?? ""} ${item.type ?? ""}`
+      .toLocaleLowerCase()
+      .includes(columnSearch.trim().toLocaleLowerCase()),
+  );
+
+  useEffect(() => {
+    if (!columnsOpen) return;
+    columnsSearch.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setColumnsOpen(false);
+      requestAnimationFrame(() => columnsTrigger.current?.focus());
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !columnsPanelRef.current?.contains(event.target) &&
+        !columnsTrigger.current?.contains(event.target)
+      )
+        setColumnsOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [columnsOpen]);
+
+  const filtered = useMemo(() => {
+    const needle = deferredQuery.trim().toLocaleLowerCase();
+    const predicate = expression ? compileRouteFilter(expression, names) : null;
+    const indexes = features.flatMap((feature, index) => {
+      const matchesSearch =
+        !needle ||
+        (field === "*"
+          ? searchText[index].includes(needle)
+          : cellValue(feature.properties?.[field])
+              .toLocaleLowerCase()
+              .includes(needle));
+      if (!matchesSearch) return [];
+      return !predicate || predicate(feature.properties ?? {}) ? [index] : [];
+    });
+    return onlySelected
+      ? indexes.filter((index) => selected.has(index))
+      : indexes;
+  }, [
+    features,
+    field,
+    deferredQuery,
+    searchText,
+    mode,
+    expression,
+    names,
+    onlySelected,
+    selected,
+  ]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageIndexes = routeFeaturePage(filtered, safePage, pageSize);
   const selectedFeatures = [...selectedRows.entries()]
     .sort(([a], [b]) => a - b)
     .map(([, feature]) => feature);
-  const allSelected =
-    filtered.length > 0 && filtered.every((index) => selected.has(index));
-  async function fetchBatch(offset: number, expression = batch.expression) {
-    if (!loadPage || requestInFlight.current) return;
+  const pageSelected =
+    pageIndexes.length > 0 && pageIndexes.every((index) => selected.has(index));
+  const somePageSelected = pageIndexes.some((index) => selected.has(index));
+  const readState = loading
+    ? "loading"
+    : allReadProgress.hasMore || !canPageSource
+      ? "partial"
+      : "complete";
+
+  async function readRemaining(
+    startOffset: number,
+    startLoaded: number,
+    readExpression = batch.expression,
+    readCapabilities = effectiveCapabilities,
+  ) {
+    if (
+      !loadPage ||
+      readCapabilities.query_scope !== "source" ||
+      !readCapabilities.pagination ||
+      requestInFlight.current
+    )
+      return;
+    const read = { cancelled: false };
+    allReadRef.current = read;
     requestInFlight.current = true;
-    const currentRequest = ++requestId.current;
+    setLoading(true);
+    setStopRequested(false);
+    setServerError("");
+    setAllReadProgress((progress) => ({
+      ...progress,
+      pages: 0,
+      loaded: startLoaded,
+      nextOffset: startOffset,
+      hasMore: true,
+      cancelled: false,
+      failed: false,
+    }));
+    try {
+      const result = await streamSourcePages<RouteFeature>({
+        loadPage,
+        capabilities: readCapabilities,
+        expression: readExpression,
+        limit: 2000,
+        startOffset,
+        isCancelled: () => read.cancelled || !alive.current,
+        onBatch: (incoming) => {
+          const routes = routeFeatures(incoming);
+          if (!routes.length) return;
+          setBatch((current) => ({
+            ...current,
+            features: current.features.concat(routes),
+          }));
+        },
+        onProgress: (progress) => {
+          if (alive.current && allReadRef.current === read)
+            setAllReadProgress({
+              ...progress,
+              loaded: startLoaded + progress.loaded,
+            });
+        },
+      });
+      if (alive.current && allReadRef.current === read) {
+        setAllReadProgress((progress) => ({
+          ...progress,
+          pages: progress.pages,
+          loaded: startLoaded + result.loaded,
+          nextOffset: result.nextOffset,
+          hasMore: result.hasMore,
+          cancelled: result.cancelled,
+        }));
+      }
+    } catch (reason) {
+      if (alive.current) {
+        setServerError(
+          reason instanceof Error ? reason.message : String(reason),
+        );
+        setAllReadProgress((progress) => ({ ...progress, failed: true }));
+      }
+    } finally {
+      if (allReadRef.current === read) allReadRef.current = null;
+      requestInFlight.current = false;
+      if (alive.current) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!canPageSource) return;
+    let timer = 0;
+    if (batch.hasMore) {
+      const startOffset = batch.offset + batch.limit;
+      timer = window.setTimeout(() => {
+        if (alive.current)
+          void readRemaining(startOffset, batch.features.length);
+      }, 0);
+    } else {
+      setAllReadProgress((progress) => ({
+        ...progress,
+        loaded: batch.features.length,
+        nextOffset: batch.offset + batch.limit,
+        hasMore: false,
+      }));
+    }
+    // 仅在选择器初次打开时自动读取后续来源页。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function stopReading() {
+    if (allReadRef.current) {
+      allReadRef.current.cancelled = true;
+      setStopRequested(true);
+    }
+  }
+
+  async function querySource(nextExpression = serverDraft) {
+    if (!loadPage || !canQuerySource || requestInFlight.current) return;
+    const requestedExpression = nextExpression.trim();
+    requestInFlight.current = true;
     setLoading(true);
     setServerError("");
     try {
-      const result = await loadPage({ offset, expression, limit: batch.limit });
-      if (!alive.current || currentRequest !== requestId.current) return;
-      const incoming = (result.collection?.features ?? []).filter(
-        (feature: RouteFeature) =>
-          ["LineString", "MultiLineString"].includes(feature.geometry?.type),
-      );
-      if (expression !== batch.expression) setSelectedRows(new Map());
-      setBatch({
-        features: incoming,
-        offset: result.offset ?? offset,
-        limit: result.page_size ?? batch.limit,
-        hasMore:
-          canPageSource && (result.has_more ?? result.truncated ?? false),
-        expression,
-        warning: result.pagination_warning,
+      const result = await loadPage({
+        offset: 0,
+        expression: requestedExpression,
+        limit: 2000,
       });
+      if (!alive.current) return;
+      const resultCapabilities = result.capabilities as
+        | SourceCapabilities
+        | undefined;
+      if (resultCapabilities) setCapabilitiesOverride(resultCapabilities);
+      const routes = routeFeatures(result.collection?.features ?? []);
+      const nextBatch = {
+        features: routes,
+        offset: result.offset ?? 0,
+        limit: result.page_size ?? 2000,
+        hasMore: Boolean(result.has_more ?? result.truncated ?? false),
+        expression: requestedExpression,
+        warning: result.pagination_warning,
+      };
+      setBatch(nextBatch);
+      setSelectedRows(new Map());
+      setServerDraft(requestedExpression);
       setPage(0);
       setQuery("");
       setExpression("");
       setDraft("");
       setError("");
+      setOnlySelected(false);
+      const nextOffset = nextBatch.offset + nextBatch.limit;
+      setAllReadProgress({
+        pages: 1,
+        loaded: routes.length,
+        nextOffset,
+        hasMore: nextBatch.hasMore,
+      });
+      requestInFlight.current = false;
+      setLoading(false);
+      if (
+        nextBatch.hasMore &&
+        resultCapabilities?.query_scope !== "snapshot" &&
+        resultCapabilities?.pagination !== false
+      )
+        void readRemaining(
+          nextOffset,
+          routes.length,
+          requestedExpression,
+          resultCapabilities ?? effectiveCapabilities,
+        );
     } catch (reason) {
-      if (alive.current && currentRequest === requestId.current)
+      if (alive.current)
         setServerError(
           reason instanceof Error ? reason.message : String(reason),
         );
-    } finally {
-      if (currentRequest === requestId.current) requestInFlight.current = false;
-      if (alive.current && currentRequest === requestId.current)
-        setLoading(false);
+      requestInFlight.current = false;
+      if (alive.current) setLoading(false);
     }
   }
+
   function applyExpression() {
     try {
       const predicate = compileRouteFilter(draft, names);
-      // 应用前验证当前数据，避免执行错误影响已生效的筛选。
       features.forEach((feature) => predicate(feature.properties ?? {}));
       setExpression(draft);
       setError("");
@@ -266,6 +493,7 @@ export function RouteFeatureSelector({
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
+
   function insertExpression(text: string) {
     const input = expressionInput.current;
     const start = input?.selectionStart ?? draft.length;
@@ -276,6 +504,7 @@ export function RouteFeatureSelector({
       input?.setSelectionRange(start + text.length, start + text.length);
     });
   }
+
   function toggle(index: number) {
     setSelected((current) => {
       const next = new Set(current);
@@ -284,250 +513,427 @@ export function RouteFeatureSelector({
       return next;
     });
   }
+
+  async function confirmSelection() {
+    if (!selectedFeatures.length || loading || submitting) return;
+    setSubmitting(true);
+    setSubmitError("");
+    let committedCount = 0;
+    try {
+      if (onReadBatch && selectedFeatures.length > 2000) {
+        for (let start = 0; start < selectedFeatures.length; start += 2000) {
+          if (!alive.current) break;
+          const chunk = selectedFeatures.slice(start, start + 2000);
+          await onReadBatch(
+            chunk,
+            start + chunk.length === selectedFeatures.length,
+          );
+          committedCount += chunk.length;
+        }
+      } else {
+        onRead(selectedFeatures);
+        committedCount = selectedFeatures.length;
+      }
+    } catch (reason) {
+      setSubmitError(
+        committedCount
+          ? `加载失败，已提交 ${committedCount} 条路线；请检查地图后再决定是否重试。${reason instanceof Error ? ` ${reason.message}` : ` ${String(reason)}`}`
+          : `加载失败，尚未确认任何路线已提交。${reason instanceof Error ? ` ${reason.message}` : ` ${String(reason)}`}`,
+      );
+    } finally {
+      if (alive.current) setSubmitting(false);
+    }
+  }
+
+  const allReadUnavailable = !canPageSource
+    ? "此来源只提供有界快照，无法确认未读取的来源记录。"
+    : batch.expression.trim() && !effectiveCapabilities.attribute_filter
+      ? "此来源不支持来源级条件查询。"
+      : "";
+  const localFilterLabel =
+    mode === "expression"
+      ? expression
+        ? `表达式：${expression}`
+        : "表达式筛选"
+      : query.trim()
+        ? `${field === "*" ? "全部字段" : field} 包含“${query.trim()}”`
+        : "未设置";
+
+  function selectMatchingColumns(checked: boolean) {
+    setVisible((current) => {
+      const next = new Set(current);
+      matchingColumns.forEach((item) => {
+        if (checked) next.add(item.name);
+        else next.delete(item.name);
+      });
+      return next;
+    });
+  }
+  function restoreCommonColumns() {
+    setVisible(defaultRouteColumnSelection(fields));
+  }
+
   return (
-    <section className="route-feature-selector" aria-label="路线要素选择器">
-      <div className="route-feature-selector__top-controls">
-        {loadPage && (
-          <div className="route-feature-selector__source">
-            <details
-              className="route-feature-selector__remote"
-              open={!canQuerySource || batch.hasMore || Boolean(serverError)}
-            >
-              <summary>
-                {sourceLabel} · 本批 {features.length} 条
-                {effectiveCapabilities.query_scope === "snapshot"
-                  ? " · 当前载入快照"
-                  : canQuerySource
-                    ? " · 可查询来源"
-                    : " · 来源条件筛选不可用"}
-              </summary>
-              {canQuerySource ? (
-                <>
-                  <div className="route-feature-selector__remote-controls">
-                    <input
-                      aria-label="数据源筛选条件"
-                      value={serverDraft}
-                      onChange={(event) => setServerDraft(event.target.value)}
-                      placeholder={
-                        "安全表达式筛选来源，例如 left(\"路线编号\", 3) = 'G10'"
-                      }
-                      disabled={loading}
-                    />
-                    <button
-                      type="button"
-                      className="button outline"
-                      disabled={loading}
-                      onClick={() => void fetchBatch(0, serverDraft)}
-                    >
-                      查询数据源
-                    </button>
-                  </div>
-                  <small>
-                    下方筛选只作用于本批；跨批选择会保留，更改数据源条件会清空选择。
-                  </small>
-                </>
-              ) : (
-                <small>
-                  {effectiveCapabilities.query_scope === "snapshot"
-                    ? `此来源当前仅提供已载入快照，不能按来源条件筛选或读取下一批；下方筛选仅作用于这 ${features.length} 条已载入要素。`
-                    : "此来源不支持属性条件查询；下方筛选仅作用于当前已载入批次。"}
-                </small>
-              )}
-              {batch.warning && (
-                <p className="route-feature-selector__warning">
-                  {batch.warning}
-                </p>
-              )}
-              {serverError && (
-                <p role="alert" className="route-feature-selector__error">
-                  {serverError}
-                </p>
-              )}
-            </details>
-          </div>
-        )}
-        {!loadPage && capabilities?.query_scope === "snapshot" && (
-          <p className="route-feature-selector__snapshot-note">
-            {sourceLabel}仅提供当前载入快照；下方筛选仅覆盖已载入的{" "}
-            {features.length} 条要素。
-          </p>
-        )}
-        <div
-          className="route-feature-selector__mode"
-          role="group"
-          aria-label="本批筛选方式"
-        >
-          <button
-            type="button"
-            aria-pressed={mode === "simple"}
-            onClick={() => {
-              setMode("simple");
-              setPage(0);
-            }}
+    <section
+      className="route-feature-selector"
+      aria-label="路线要素选择器"
+      data-read-state={readState}
+    >
+      <header className="route-feature-selector__header">
+        <div className="route-feature-selector__source-summary">
+          <strong title={sourceLabel}>{displaySourceLabel}</strong>
+          <span
+            className={`route-feature-selector__read-status is-${readState}`}
+            role="status"
           >
-            本批快速筛选
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === "expression"}
-            onClick={() => {
-              setMode("expression");
-              setPage(0);
-            }}
-          >
-            表达式筛选
-          </button>
+            {loading
+              ? `正在读取来源 · 已载入 ${allReadProgress.loaded} 条`
+              : readState === "complete"
+                ? `全部读取完成 · ${features.length} 条`
+                : canPageSource
+                  ? `已载入 ${features.length} 条 · 来源尚未完整读取`
+                  : `已载入快照 ${features.length} 条 · 来源可用范围受限`}
+          </span>
+          {effectiveCapabilities.stable_order === false && canPageSource && (
+            <small>
+              来源排序未确认稳定，读取期间源数据变化可能影响分页结果。
+            </small>
+          )}
         </div>
-        {mode === "simple" ? (
-          <div className="route-feature-selector__filters">
-            <label>
-              筛选字段
-              <select
-                aria-label="筛选字段"
-                value={field}
-                onChange={(event) => {
-                  setField(event.target.value);
-                  setPage(0);
-                }}
-              >
-                <option value="*">全部字段</option>
-                {fields.map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.name}
-                    {item.comment || item.description
-                      ? " · " + (item.comment || item.description)
-                      : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              包含值
-              <input
-                aria-label="搜索字段值"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(0);
-                }}
-                placeholder="输入要查找的文本"
-              />
-            </label>
-          </div>
-        ) : (
-          <div className="route-feature-selector__expression">
-            <label htmlFor="route-filter-condition">本批表达式条件</label>
-            <div className="route-feature-selector__filters">
-              <select
-                aria-label="插入条件字段"
-                value=""
-                onChange={(event) =>
-                  insertExpression(
-                    '"' + event.target.value.replaceAll('"', '""') + '"',
-                  )
-                }
-              >
-                <option value="" disabled>
-                  插入字段…
-                </option>
-                {fields.map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.name}
-                    {item.comment || item.description
-                      ? " · " + (item.comment || item.description)
-                      : ""}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="插入条件函数"
-                value=""
-                onChange={(event) => insertExpression(event.target.value)}
-              >
-                <option value="" disabled>
-                  插入函数示例…
-                </option>
-                <option value={'left("字段", 3)'}>left · 取左侧字符</option>
-                <option value={'right("字段", 2)'}>right · 取右侧字符</option>
-                <option value={'lower("字段")'}>lower · 转小写</option>
-                <option value={'coalesce("字段", 0)'}>
-                  coalesce · 空值替代
-                </option>
-              </select>
-            </div>
-            <textarea
-              ref={expressionInput}
-              id="route-filter-condition"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              aria-invalid={Boolean(error)}
-              aria-describedby="route-filter-help"
-              placeholder={`left("路线编号", 3) = 'G10' AND "车道数" >= 2`}
-              onKeyDown={(event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  applyExpression();
-                }
-              }}
-            />
-            <div className="route-feature-selector__expression-actions">
-              <button
-                type="button"
-                className="button primary"
-                onClick={applyExpression}
-              >
-                应用条件
-              </button>
-              <button
-                type="button"
-                className="button outline"
-                onClick={() => {
-                  setDraft("");
-                  setExpression("");
-                  setError("");
-                  setPage(0);
-                }}
-              >
-                清除条件
-              </button>
-              <span>Ctrl+Enter 应用</span>
-            </div>
-            {error && (
-              <p role="alert" className="route-feature-selector__error">
-                {error}；仍显示上次有效条件的结果。
-              </p>
-            )}
-            <details id="route-filter-help">
-              <summary>函数与语法示例</summary>
-              <p>
-                支持
-                left、right、lower、upper、trim、length、coalesce；比较、AND /
-                OR / NOT、LIKE / ILIKE、IN、IS
-                NULL。字段名可用双引号，文本值用单引号。
-              </p>
-              <code>{`left("路线编号", 3) = 'G10' AND right("路线编号", 2) IN ('01', '02')`}</code>
-              <p>
-                这里的条件只筛选当前已载入批次；来源查询能力由数据源类型决定。
-              </p>
-            </details>
-            {expression && (
-              <div className="route-feature-selector__active">
-                已应用：<code>{expression}</code>
-              </div>
-            )}
-          </div>
+        <div className="route-feature-selector__read-actions">
+          {loading ? (
+            <button
+              type="button"
+              className="button outline"
+              onClick={stopReading}
+            >
+              停止读取
+            </button>
+          ) : canPageSource && allReadProgress.hasMore ? (
+            <button
+              type="button"
+              className="button outline"
+              onClick={() =>
+                void readRemaining(allReadProgress.nextOffset, features.length)
+              }
+            >
+              {allReadProgress.failed ? "重试读取" : "继续读取"}
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="route-feature-selector__toolbar">
+        <label className="route-feature-selector__search">
+          <span>搜索</span>
+          <select
+            aria-label="筛选字段"
+            value={field}
+            onChange={(event) => {
+              setField(event.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="*">全部字段</option>
+            {fields.map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label="搜索字段值"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(0);
+            }}
+            placeholder="搜索已载入路线"
+          />
+        </label>
+        <button
+          type="button"
+          className="button outline"
+          aria-expanded={localFilterOpen}
+          onClick={() => {
+            setLocalFilterOpen((open) => !open);
+            setSourceFilterOpen(false);
+          }}
+        >
+          高级筛选{expression ? " · 已应用" : ""}
+        </button>
+        {loadPage && (
+          <button
+            type="button"
+            className="button outline"
+            aria-expanded={sourceFilterOpen}
+            onClick={() => {
+              setSourceFilterOpen((open) => !open);
+              setLocalFilterOpen(false);
+            }}
+          >
+            来源条件
+          </button>
         )}
-        <details className="route-feature-selector__columns">
-          <summary>
-            显示字段（{columns.length} / {fields.length}）
-          </summary>
-          <div className="route-feature-selector__column-actions">
+        <label className="route-feature-selector__only-selected">
+          <input
+            type="checkbox"
+            aria-label="只看已选"
+            checked={onlySelected}
+            onChange={(event) => {
+              setOnlySelected(event.target.checked);
+              setPage(0);
+            }}
+          />
+          只看已选
+        </label>
+        <span className="route-feature-selector__match-count">
+          匹配 {filtered.length} / {features.length} · 已选 {selectedRows.size}
+        </span>
+        <button
+          ref={columnsTrigger}
+          type="button"
+          className="button outline"
+          aria-haspopup="dialog"
+          aria-expanded={columnsOpen}
+          aria-controls="route-feature-column-panel"
+          onClick={() => setColumnsOpen((open) => !open)}
+        >
+          显示字段 {columns.length}/{fields.length}
+        </button>
+      </div>
+
+      {canQuerySource && sourceFilterOpen && (
+        <div className="route-feature-selector__remote route-feature-selector__panel">
+          <div className="route-feature-selector__remote-heading">
+            <strong>来源条件查询</strong>
+            <small>查询整个数据源，成功后从所有匹配路线中继续自动读取。</small>
+          </div>
+          <div className="route-feature-selector__remote-controls">
             <input
-              aria-label="搜索显示字段"
-              placeholder="搜索字段名称或注释"
-              value={columnSearch}
-              onChange={(event) => setColumnSearch(event.target.value)}
+              aria-label="数据源筛选条件"
+              value={serverDraft}
+              onChange={(event) => setServerDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void querySource();
+              }}
+              placeholder={"例如 left(\"路线编号\", 3) = 'G10'"}
+              disabled={loading}
             />
+            <button
+              type="button"
+              className="button outline"
+              disabled={loading}
+              onClick={() => void querySource()}
+            >
+              查询整个来源
+            </button>
+          </div>
+          <small>当前来源条件：{batch.expression || "无条件"}</small>
+        </div>
+      )}
+      {!canPageSource && (
+        <p className="route-feature-selector__snapshot-note" role="status">
+          {allReadUnavailable} 当前显示 {features.length}{" "}
+          条已载入快照；本地筛选只覆盖这些记录。
+        </p>
+      )}
+      {batch.warning && (
+        <p className="route-feature-selector__warning">{batch.warning}</p>
+      )}
+      {serverError && (
+        <p role="alert" className="route-feature-selector__error">
+          {serverError}；当前表格与选择保持不变。
+        </p>
+      )}
+
+      {localFilterOpen && (
+        <div className="route-feature-selector__local-filter route-feature-selector__panel">
+          <div className="route-feature-selector__filter-heading">
+            <div>
+              <strong>已载入数据筛选</strong>
+              <small>{localFilterLabel}</small>
+            </div>
+            <div
+              className="route-feature-selector__mode"
+              role="group"
+              aria-label="本批筛选方式"
+            >
+              <button
+                type="button"
+                aria-pressed={mode === "simple"}
+                onClick={() => {
+                  setMode("simple");
+                  setPage(0);
+                }}
+              >
+                快速筛选
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === "expression"}
+                onClick={() => {
+                  setMode("expression");
+                  setPage(0);
+                }}
+              >
+                表达式
+              </button>
+            </div>
+          </div>
+          {mode === "expression" && (
+            <div className="route-feature-selector__expression">
+              <label htmlFor="route-filter-condition">本地表达式条件</label>
+              <div className="route-feature-selector__filters">
+                <select
+                  aria-label="插入条件字段"
+                  value=""
+                  onChange={(event) =>
+                    insertExpression(
+                      '"' + event.target.value.replaceAll('"', '""') + '"',
+                    )
+                  }
+                >
+                  <option value="" disabled>
+                    插入字段…
+                  </option>
+                  {fields.map((item) => (
+                    <option key={item.name} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="插入条件函数"
+                  value=""
+                  onChange={(event) => insertExpression(event.target.value)}
+                >
+                  <option value="" disabled>
+                    插入函数示例…
+                  </option>
+                  <option value={'left("字段", 3)'}>left · 取左侧字符</option>
+                  <option value={'right("字段", 2)'}>right · 取右侧字符</option>
+                  <option value={'lower("字段")'}>lower · 转小写</option>
+                  <option value={'coalesce("字段", 0)'}>
+                    coalesce · 空值替代
+                  </option>
+                </select>
+              </div>
+              <textarea
+                ref={expressionInput}
+                id="route-filter-condition"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby="route-filter-help"
+                placeholder={`left("路线编号", 3) = 'G10' AND "车道数" >= 2`}
+                onKeyDown={(event) => {
+                  if (
+                    (event.ctrlKey || event.metaKey) &&
+                    event.key === "Enter"
+                  ) {
+                    event.preventDefault();
+                    applyExpression();
+                  }
+                }}
+              />
+              <div className="route-feature-selector__expression-actions">
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={applyExpression}
+                >
+                  应用条件
+                </button>
+                <button
+                  type="button"
+                  className="button outline"
+                  onClick={() => {
+                    setDraft("");
+                    setExpression("");
+                    setError("");
+                    setPage(0);
+                  }}
+                >
+                  清除条件
+                </button>
+                <span>Ctrl+Enter 应用 · 仅筛选当前已载入记录</span>
+              </div>
+              {error && (
+                <p role="alert" className="route-feature-selector__error">
+                  {error}；仍显示上次有效条件的结果。
+                </p>
+              )}
+              <details id="route-filter-help">
+                <summary>表达式语法帮助</summary>
+                <p>
+                  支持
+                  left、right、lower、upper、trim、length、coalesce；比较、AND /
+                  OR / NOT、LIKE / ILIKE、IN、IS NULL。
+                </p>
+                <code>{`left("路线编号", 3) = 'G10' AND right("路线编号", 2) IN ('01', '02')`}</code>
+              </details>
+              {expression && (
+                <div className="route-feature-selector__active">
+                  已应用：<code>{expression}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {columnsOpen && (
+        <div
+          ref={columnsPanelRef}
+          id="route-feature-column-panel"
+          className="route-feature-selector__column-popover"
+          role="dialog"
+          aria-label="显示字段"
+        >
+          <div className="route-feature-selector__column-heading">
+            <strong>选择显示字段</strong>
+            <button
+              type="button"
+              className="button outline"
+              aria-label="关闭显示字段面板"
+              onClick={() => {
+                setColumnsOpen(false);
+                columnsTrigger.current?.focus();
+              }}
+            >
+              关闭
+            </button>
+          </div>
+          <input
+            ref={columnsSearch}
+            aria-label="搜索显示字段"
+            placeholder="搜索字段名称或注释"
+            value={columnSearch}
+            onChange={(event) => setColumnSearch(event.target.value)}
+          />
+          <div className="route-feature-selector__column-actions">
+            <button
+              type="button"
+              className="button outline"
+              onClick={() => selectMatchingColumns(true)}
+            >
+              全选匹配
+            </button>
+            <button
+              type="button"
+              className="button outline"
+              onClick={() => selectMatchingColumns(false)}
+            >
+              清空匹配
+            </button>
+            <button
+              type="button"
+              className="button outline"
+              onClick={restoreCommonColumns}
+            >
+              恢复常用
+            </button>
             <button
               type="button"
               className="button outline"
@@ -535,129 +941,95 @@ export function RouteFeatureSelector({
             >
               显示全部
             </button>
-            <button
-              type="button"
-              className="button outline"
-              onClick={() => setVisible(new Set())}
-            >
-              隐藏全部
-            </button>
           </div>
+          <small className="route-feature-selector__column-count">
+            已显示 {columns.length} 项 · 匹配 {matchingColumns.length} 项
+          </small>
           <div className="route-feature-selector__column-list">
-            {fields
-              .filter((item) =>
-                (item.name + " " + (item.comment ?? item.description ?? ""))
-                  .toLocaleLowerCase()
-                  .includes(columnSearch.toLocaleLowerCase()),
-              )
-              .map((item) => (
-                <label key={item.name}>
-                  <input
-                    type="checkbox"
-                    checked={visible.has(item.name)}
-                    onChange={() =>
-                      setVisible((current) => {
-                        const next = new Set(current);
-                        if (next.has(item.name)) next.delete(item.name);
-                        else next.add(item.name);
-                        return next;
-                      })
-                    }
-                  />
-                  <span>
-                    {item.name}
-                    <small>
-                      {item.comment || item.description || item.type || ""}
-                    </small>
-                  </span>
-                </label>
-              ))}
+            {matchingColumns.map((item) => (
+              <label key={item.name}>
+                <input
+                  type="checkbox"
+                  checked={visible.has(item.name)}
+                  onChange={() =>
+                    setVisible((current) => {
+                      const next = new Set(current);
+                      if (next.has(item.name)) next.delete(item.name);
+                      else next.add(item.name);
+                      return next;
+                    })
+                  }
+                />
+                <span>
+                  {item.name}
+                  <small>
+                    {item.comment || item.description || item.type || ""}
+                  </small>
+                </span>
+              </label>
+            ))}
+            {!matchingColumns.length && <p>没有匹配的字段。</p>}
           </div>
-        </details>
-      </div>
-      {canPageSource && (
-        <div
-          className="route-feature-selector__source-pager"
-          aria-label="数据源批次"
-        >
-          <button
-            type="button"
-            className="button outline"
-            disabled={loading || batch.offset === 0}
-            onClick={() =>
-              void fetchBatch(Math.max(0, batch.offset - batch.limit))
-            }
-          >
-            上一批
-          </button>
-          <span>
-            偏移 {batch.offset} · 每批 {batch.limit} 条
-            {!effectiveCapabilities.stable_order ? " · 顺序可能变化" : ""}
-            {loading ? " · 读取中…" : ""}
-          </span>
-          <button
-            type="button"
-            className="button outline"
-            disabled={loading || !batch.hasMore}
-            onClick={() => void fetchBatch(batch.offset + batch.limit)}
-          >
-            下一批
-          </button>
+          <small>按 Esc 或点击面板外关闭；表头保留字段注释。</small>
         </div>
       )}
-      <div className="route-feature-selector__toolbar">
-        <span>
-          本批匹配 {filtered.length} / {features.length} 条 · 已选{" "}
-          {selectedRows.size} 条
-        </span>
-        <div>
-          <button
-            type="button"
-            className="button outline"
-            disabled={!filtered.length || loading}
-            onClick={() =>
-              setSelected((current) => {
-                const next = new Set(current);
-                filtered.forEach((index) =>
-                  allSelected ? next.delete(index) : next.add(index),
-                );
-                return next;
-              })
-            }
-          >
-            {allSelected ? "取消全选筛选结果" : "全选筛选结果"}
-          </button>
-          <button
-            type="button"
-            className="button outline"
-            disabled={!selectedRows.size || loading}
-            onClick={() => setSelectedRows(new Map())}
-          >
-            清空选择
-          </button>
+
+      {sourceFilterOpen && !canQuerySource && (
+        <div className="route-feature-selector__remote route-feature-selector__panel">
+          <strong>来源条件查询不可用</strong>
+          <small>
+            {effectiveCapabilities.query_scope === "snapshot"
+              ? "此来源仅提供有界快照，无法查询全部来源。"
+              : "此来源不支持属性条件查询。"}
+          </small>
         </div>
-      </div>
+      )}
+
       <div
         className="route-feature-selector__table-scroll"
         tabIndex={0}
         aria-label="路线属性表，可横向滚动"
       >
-        <table className="route-feature-selector__table">
+        <table
+          className="route-feature-selector__table"
+          style={{ minWidth: 246 + columns.length * 120 }}
+        >
+          <colgroup>
+            <col style={{ width: 42 }} />
+            <col style={{ width: 64 }} />
+            <col style={{ width: 140 }} />
+            {columns.map((item) => (
+              <col key={item.name} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="route-feature-selector__check">选择</th>
-              <th>序号</th>
+              <th className="route-feature-selector__check">
+                <input
+                  type="checkbox"
+                  aria-label="选择当前页"
+                  checked={pageSelected}
+                  ref={(element) => {
+                    if (element)
+                      element.indeterminate = somePageSelected && !pageSelected;
+                  }}
+                  onChange={() =>
+                    setSelected((current) => {
+                      const next = new Set(current);
+                      pageIndexes.forEach((index) =>
+                        pageSelected ? next.delete(index) : next.add(index),
+                      );
+                      return next;
+                    })
+                  }
+                />
+              </th>
+              <th className="route-feature-selector__row-number">序号</th>
               <th>几何类型</th>
               {columns.map((item) => (
                 <th
                   key={item.name}
-                  title={
-                    item.name +
-                    " · " +
-                    (item.type ?? "") +
-                    " · " +
-                    (item.comment || item.description || "")
-                  }
+                  title={`${item.name} · ${item.type ?? ""} · ${item.comment || item.description || ""}`}
                 >
                   <span>{item.name}</span>
                   {(item.comment || item.description) && (
@@ -672,18 +1044,27 @@ export function RouteFeatureSelector({
               <tr
                 key={index}
                 className={selected.has(index) ? "is-selected" : ""}
+                onClick={(event) => {
+                  if (
+                    (event.target as HTMLElement).closest(
+                      "button,input,select,a",
+                    )
+                  )
+                    return;
+                  toggle(index);
+                }}
               >
                 <td className="route-feature-selector__check">
                   <input
                     type="checkbox"
                     checked={selected.has(index)}
                     onChange={() => toggle(index)}
-                    aria-label={
-                      "选择第 " + (batch.offset + index + 1) + " 条路线"
-                    }
+                    aria-label={`选择第 ${index + 1} 条路线`}
                   />
                 </td>
-                <td>{batch.offset + index + 1}</td>
+                <td className="route-feature-selector__row-number">
+                  {index + 1}
+                </td>
                 <td>{features[index].geometry.type}</td>
                 {columns.map((item) => {
                   const value = features[index].properties?.[item.name];
@@ -706,39 +1087,137 @@ export function RouteFeatureSelector({
           <p className="route-feature-selector__empty">没有匹配的线要素。</p>
         )}
       </div>
-      <div className="route-feature-selector__pagination" aria-label="分页">
+
+      <div className="route-feature-selector__table-footer">
         <button
           type="button"
           className="button outline"
-          disabled={page <= 0}
-          onClick={() => setPage((value) => Math.max(0, value - 1))}
+          disabled={!filtered.length || loading}
+          onClick={() =>
+            setSelected((current) => {
+              const next = new Set(current);
+              const allFilteredSelected = filtered.every((index) =>
+                selected.has(index),
+              );
+              filtered.forEach((index) =>
+                allFilteredSelected ? next.delete(index) : next.add(index),
+              );
+              return next;
+            })
+          }
         >
-          上一页
+          {filtered.length > 0 && filtered.every((index) => selected.has(index))
+            ? "取消全选筛选结果"
+            : "全选筛选结果"}
         </button>
-        <span>
-          第 {Math.min(page + 1, pageCount)} / {pageCount} 页 · 每页 50 条
-        </span>
         <button
           type="button"
           className="button outline"
-          disabled={page + 1 >= pageCount}
-          onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+          disabled={!selectedRows.size || loading || submitting}
+          onClick={() => {
+            setSelectedRows(new Map());
+            setOnlySelected(false);
+          }}
         >
-          下一页
+          清空选择
         </button>
+        <label className="route-feature-selector__page-size">
+          每页
+          <select
+            aria-label="每页显示条数"
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setPage(0);
+            }}
+          >
+            {[50, 100, 200].map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          条
+        </label>
+        <div className="route-feature-selector__pagination" aria-label="分页">
+          <button
+            type="button"
+            className="button outline"
+            disabled={safePage <= 0}
+            onClick={() => setPage((value) => Math.max(0, value - 1))}
+          >
+            上一页
+          </button>
+          <label>
+            第{" "}
+            <input
+              aria-label="跳转页码"
+              type="number"
+              min={1}
+              max={pageCount}
+              value={safePage + 1}
+              onChange={(event) => {
+                const nextPage = Number(event.target.value);
+                if (Number.isFinite(nextPage))
+                  setPage(Math.max(0, Math.min(pageCount - 1, nextPage - 1)));
+              }}
+            />{" "}
+            / {pageCount} 页
+          </label>
+          <button
+            type="button"
+            className="button outline"
+            disabled={safePage + 1 >= pageCount}
+            onClick={() =>
+              setPage((value) => Math.min(pageCount - 1, value + 1))
+            }
+          >
+            下一页
+          </button>
+        </div>
       </div>
-      <div className="dialog-actions">
-        <button type="button" className="button outline" onClick={onCancel}>
-          取消
-        </button>
-        <button
-          type="button"
-          className="button primary"
-          disabled={!selectedFeatures.length || loading}
-          onClick={() => onRead(selectedFeatures)}
+
+      <div className="route-feature-selector__bottom">
+        <div
+          className="route-feature-selector__bottom-status"
+          aria-live="polite"
         >
-          加载到地图（{selectedFeatures.length}）
-        </button>
+          {loading
+            ? stopRequested
+              ? `正在停止读取；已保留 ${features.length} 条。`
+              : `正在读取来源：已读取 ${allReadProgress.loaded} 条，可停止后保留并继续。`
+            : allReadProgress.cancelled
+              ? `已停止；保留已读 ${features.length} 条，下一位置 ${allReadProgress.nextOffset}。`
+              : allReadProgress.failed
+                ? `读取中断；保留已读 ${features.length} 条，下一位置 ${allReadProgress.nextOffset}。`
+                : readState === "complete"
+                  ? `来源读取完成，共 ${features.length} 条。`
+                  : `当前为部分来源数据，已读 ${features.length} 条。`}
+          {submitError && <span role="alert">{submitError}</span>}
+        </div>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="button outline"
+            disabled={submitting}
+            onClick={() => {
+              stopReading();
+              onCancel();
+            }}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="button primary"
+            disabled={!selectedFeatures.length || loading || submitting}
+            onClick={() => void confirmSelection()}
+          >
+            {submitting
+              ? "正在加载到地图…"
+              : `加载到地图（${selectedFeatures.length}）`}
+          </button>
+        </div>
       </div>
     </section>
   );

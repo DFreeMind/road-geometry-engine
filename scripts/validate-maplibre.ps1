@@ -1,6 +1,7 @@
-﻿param([string]$AppPath, [string]$OutputDir)
+﻿param([string]$AppPath, [string]$OutputDir, [string]$SmokeScript)
 $ErrorActionPreference = 'Stop'
 $workspacePath = Split-Path -Parent $PSScriptRoot
+if (-not $SmokeScript) { $SmokeScript = Join-Path $PSScriptRoot 'maplibre-smoke.mjs' }
 . (Join-Path $PSScriptRoot 'maplibre-node-env.ps1')
 Initialize-MapLibreNodeEnvironment
 if (-not $AppPath) { $AppPath = Get-MapLibreDesktopPath -WorkspacePath $workspacePath }
@@ -30,7 +31,7 @@ try {
         try { $null = Invoke-RestMethod "http://127.0.0.1:$port/json" -TimeoutSec 1; $ready = $true; break } catch { Start-Sleep -Milliseconds 250 }
     }
     if (-not $ready) { throw 'WebView2 调试端口未就绪。' }
-    & node (Join-Path $PSScriptRoot 'maplibre-smoke.mjs') "http://127.0.0.1:$port" $OutputDir $workspacePath
+    & node $SmokeScript "http://127.0.0.1:$port" $OutputDir $workspacePath
     if ($LASTEXITCODE -ne 0) { throw "MapLibre 桌面闭环验证失败；报告：$OutputDir" }
 } finally {
     if (-not $process.HasExited) { Stop-Process -Id $process.Id }

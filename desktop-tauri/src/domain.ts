@@ -161,7 +161,6 @@ export function normalizeProject(input: unknown): RoadProject {
   if (
     !Array.isArray(points) ||
     points.length === 1 ||
-    points.length > 2000 ||
     points.some(
       (p) =>
         !Array.isArray(p) ||
@@ -169,7 +168,7 @@ export function normalizeProject(input: unknown): RoadProject {
         p.some((n) => typeof n !== "number" || !Number.isFinite(n)),
     )
   )
-    throw new Error("路线点无效：须为空路线或 2 至 2,000 个有限投影坐标点");
+    throw new Error("路线点无效：须为空路线或至少 2 个有限投影坐标点");
   const isEngineSection = (value: unknown): value is RouteSection =>
     Boolean(
       value &&

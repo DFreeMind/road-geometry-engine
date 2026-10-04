@@ -763,7 +763,7 @@ export function DataSourceTools({
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [connectionActionsOpen, setConnectionActionsOpen] = useState(false);
   const [filterExpression, setFilterExpression] = useState("");
-  const [pageSize, setPageSize] = useState(500);
+  const [pageSize, setPageSize] = useState(2_000);
   const [useMapBounds, setUseMapBounds] = useState(false);
   const [manager, setManager] = useState(false);
   const [edit, setEdit] = useState<{
@@ -1179,17 +1179,21 @@ export function DataSourceTools({
       connectionSessions.set(current, password);
       const credentialWarning = await rememberAuthenticated(current, password);
       setShowAuthentication(false);
-      const count =
-        imported.collection?.features?.length ?? imported.feature_count ?? 0;
       const more = Boolean(imported.has_more || imported.truncated);
       const orderWarning =
         isPageable(imported.capabilities) && !imported.capabilities.stable_order
-          ? "当前图层未确认稳定排序，继续翻页时可能出现重复或遗漏。"
+          ? "当前图层未确认稳定排序，继续读取时可能出现重复或遗漏。"
           : "";
       setConnectionActionsOpen(false);
       setCatalogOpen(false);
       setStatus(
-        `已取得 ${count} 条候选，请在属性表选择后加载地图。${more ? (isPageable(imported.capabilities) ? `本批 ${count} 条，仍有更多；可继续翻页或缩小来源条件。` : "已达到本批快照上限；此数据源不支持翻页或来源条件筛选。") : ""}${orderWarning}${credentialWarning}`,
+        `已打开选择表；${
+          more
+            ? isPageable(imported.capabilities)
+              ? "正在继续读取来源，确认后加载地图。"
+              : "此来源只提供有界快照，不能继续读取剩余记录。"
+            : "候选已读取完成，确认后加载地图。"
+        }${orderWarning}${credentialWarning}`,
       );
     } catch (error) {
       setStatus(
@@ -1329,7 +1333,7 @@ export function DataSourceTools({
                   )}
                   {capabilities.pagination && (
                     <label>
-                      每批读取数量
+                      传输批次大小（不限制总量）
                       <select
                         value={pageSize}
                         disabled={busy}

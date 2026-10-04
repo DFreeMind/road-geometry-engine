@@ -1,3 +1,4 @@
+mod batch;
 mod credentials;
 mod engine;
 mod gis;
@@ -13,6 +14,7 @@ pub fn run() {
         .manage(gis::GisState::default())
         .invoke_handler(tauri::generate_handler![
             generate_road,
+            generate_roads_batch,
             cancel_generation,
             project::save_project,
             project::load_project,
@@ -42,6 +44,26 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("启动道路几何桌面端失败");
+}
+
+#[tauri::command]
+async fn generate_roads_batch(
+    tasks: serde_json::Value,
+    job_id: String,
+    state: tauri::State<'_, engine::EngineState>,
+    paths: tauri::State<'_, Arc<engine::EnginePaths>>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    let control = state.reserve(&job_id)?;
+    let worker_paths = Arc::clone(paths.inner());
+    let worker_control = Arc::clone(&control);
+    let worker_job_id = job_id.clone();
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        batch::run_batch(tasks, worker_job_id, worker_paths, worker_control, app)
+    })
+    .await;
+    state.release_if_current(&job_id, &control);
+    joined.map_err(|error| format!("批量引擎任务线程失败：{error}"))?
 }
 
 #[tauri::command]
