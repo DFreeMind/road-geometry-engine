@@ -82,7 +82,24 @@ import {
   type GeometryType,
   type Position,
   type RoadProject,
+  type RouteSection,
 } from "../domain";
+import { FacilityDisplaySettings } from "./FacilityDisplaySettings";
+import {
+  clampFacilityDisplayScale,
+  facilityIconSizeExpression,
+  facilityMarkerRadiusExpression,
+} from "./facilityDisplay";
+import { GeneratedSurfaceEditor } from "./GeneratedSurfaceEditor";
+import {
+  filterGeneratedComponentLayers,
+  featureMatchesSelector,
+  setPartSection,
+  setPartComponentExclusion,
+  setPartExcluded,
+  resetPartEdits,
+  type ComponentSelector,
+} from "./generatedSurfaceEdits";
 import { chooseFile, chooseSave } from "../tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -135,7 +152,15 @@ import {
 } from "./sourceAccess";
 
 type Panel = "data" | "road" | "facility" | "layers";
-type Tool = "pan" | "route" | "vertex" | "facility";
+type Tool = "pan" | "route" | "vertex" | "surface" | "facility";
+type SurfaceSelection = {
+  dataset_id?: string;
+  feature_key?: string;
+  part_index: number;
+  selector: ComponentSelector;
+  label: string;
+  componentLabel: string;
+};
 type Status = { text: string; tone?: "warn" | "ok" | "error" };
 const emptyCollection: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
@@ -160,6 +185,7 @@ function retainUnchangedSourceResults(
   next: RoadProject,
   id: string,
   changedKeys: string[] = [],
+  changedPartIndex?: number,
 ) {
   const output = current.source_batch_output as SourceBatchOutput | undefined;
   const before = ((current.vector_basemaps as any[]) ?? []).find(
@@ -185,7 +211,10 @@ function retainUnchangedSourceResults(
       },
       results: output.results.filter(
         (result) =>
-          result.dataset_id !== id || !changedKeys.includes(result.feature_key),
+          result.dataset_id !== id ||
+          !changedKeys.includes(result.feature_key) ||
+          (changedPartIndex !== undefined &&
+            result.part_index !== changedPartIndex),
       ),
     },
   };
@@ -269,6 +298,25 @@ function responseLayers(
   }
   return layers;
 }
+function singleSurfaceExclusions(project: RoadProject): ComponentSelector[] {
+  const active = project.active_source_ref as
+    | { dataset_id: string; feature_key: string; part_index: number }
+    | undefined;
+  if (active) {
+    const dataset = ((project.vector_basemaps as SourceDataset[]) ?? []).find(
+      (item) => item.id === active.dataset_id,
+    );
+    return (
+      dataset?.route_overrides?.[active.feature_key]?.component_exclusions ?? []
+    )
+      .filter((item) => item.part_index === active.part_index)
+      .map((item) => ({ ...item, part_index: 0 }));
+  }
+  return (
+    (project.surface_component_exclusions as ComponentSelector[] | undefined) ??
+    []
+  );
+}
 
 export function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -350,6 +398,11 @@ export function App() {
   const [panel, setPanel] = useState<Panel>("data");
   const [tool, setTool] = useState<Tool>("pan");
   const [selectedFacility, setSelectedFacility] = useState<string | null>(null);
+  const [surfaceSelection, setSurfaceSelection] =
+    useState<SurfaceSelection | null>(null);
+  const [surfaceDelete, setSurfaceDelete] = useState<
+    "component" | "part" | null
+  >(null);
   const [layerVisible, setLayerVisible] = useState({
     route: true,
     generated: true,
@@ -438,9 +491,17 @@ export function App() {
     touchDocument();
   };
   const update = useCallback(
-    (recipe: (current: RoadProject) => RoadProject, dirty = true) => {
+    (
+      recipe: (current: RoadProject) => RoadProject,
+      dirty = true,
+      generatedResponse?: unknown,
+    ) => {
       const current = projectRef.current;
       const next = recipe(current);
+      if (next.route_points !== current.route_points) {
+        next.surface_original_section = undefined;
+        next.surface_component_exclusions = [];
+      }
       if (dirty) {
         touchDocument();
         redoRef.current = [];
@@ -514,7 +575,14 @@ export function App() {
                         }
                       : {}),
                     ...(sectionChanged
-                      ? { section: structuredClone(next.section) }
+                      ? {
+                          part_sections: {
+                            ...old.part_sections,
+                            [String(activeRef.part_index)]: structuredClone(
+                              next.section,
+                            ),
+                          },
+                        }
                       : {}),
                   },
                 },
@@ -526,10 +594,20 @@ export function App() {
             next,
             activeRef.dataset_id,
             [activeRef.feature_key],
+            activeRef.part_index,
           ).source_batch_output;
         }
       }
-      const value = dirty && roadChanged ? markInputEdited(next) : next;
+      let value = dirty && roadChanged ? markInputEdited(next) : next;
+      // 成果编辑先在原生引擎成功计算，再与输入作为一个可撤销事务提交。
+      if (generatedResponse !== undefined)
+        value = {
+          ...value,
+          output: {
+            input_version: value.input_version,
+            response: generatedResponse,
+          },
+        };
       if (dirty && roadChanged)
         setRoadState((previous) =>
           current.output || previous !== "empty" ? "changed" : "empty",
@@ -587,12 +665,118 @@ export function App() {
   const layers = useMemo(
     () => [
       ...(project.output?.input_version === project.input_version
-        ? responseLayers(project.output.response)
+        ? filterGeneratedComponentLayers(
+            responseLayers(project.output.response),
+            singleSurfaceExclusions(project),
+          )
         : []),
       ...batchOutputLayers(validBatchOutput, sourceDatasets),
     ],
-    [project.output, project.input_version, validBatchOutput, sourceDatasets],
+    [
+      project.output,
+      project.input_version,
+      project.surface_component_exclusions,
+      project.active_source_ref,
+      validBatchOutput,
+      sourceDatasets,
+    ],
   );
+  const productionLayersRef = useRef(layers);
+  productionLayersRef.current = layers;
+  const facilityDisplayScale = clampFacilityDisplayScale(
+    Number(project.facility_display_scale),
+  );
+  const surfaceDataset = surfaceSelection?.dataset_id
+    ? sourceDatasets.find(
+        (dataset) => dataset.id === surfaceSelection.dataset_id,
+      )
+    : undefined;
+  const surfaceSection = useMemo(
+    () =>
+      surfaceDataset && surfaceSelection?.feature_key
+        ? (surfaceDataset.route_overrides?.[surfaceSelection.feature_key]
+            ?.part_sections?.[String(surfaceSelection.part_index)] ??
+          surfaceDataset.route_overrides?.[surfaceSelection.feature_key]
+            ?.section ??
+          (() => {
+            const index = surfaceDataset.feature_keys.indexOf(
+              surfaceSelection.feature_key!,
+            );
+            try {
+              return index >= 0
+                ? mappedSectionForFeature(
+                    surfaceDataset.collection.features[index],
+                    surfaceDataset.mapping ?? {},
+                    surfaceDataset.manual_section ?? project.section,
+                  )
+                : project.section;
+            } catch {
+              return project.section;
+            }
+          })())
+        : project.section,
+    [surfaceDataset, surfaceSelection, project.section],
+  );
+  const savedSurfaceTargets = useMemo(
+    () =>
+      sourceDatasets.flatMap((dataset) =>
+        Object.entries(dataset.route_overrides ?? {}).flatMap(
+          ([featureKey, override]) => {
+            const indices = new Set([
+              ...Object.keys(override.part_sections ?? {}).map(Number),
+              ...(override.component_exclusions ?? []).map(
+                (item) => item.part_index,
+              ),
+            ]);
+            return [...indices].map(
+              (partIndex) =>
+                ({
+                  dataset_id: dataset.id,
+                  feature_key: featureKey,
+                  part_index: partIndex,
+                  selector: { part_index: partIndex },
+                  label: `${dataset.label} · ${featureKey}`,
+                  componentLabel: "已保存的路段编辑",
+                }) satisfies SurfaceSelection,
+            );
+          },
+        ),
+      ),
+    [sourceDatasets],
+  );
+  const surfaceHighlight = useMemo(() => {
+    if (!surfaceSelection || !outputDisplay) return emptyCollection;
+    const found = outputDisplay.features.find((display) => {
+      const properties = display.properties;
+      const layer = layers[Number(properties?.__output_layer)];
+      const feature =
+        layer?.collection.features[Number(properties?.__output_feature)];
+      if (
+        !feature ||
+        !["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
+      )
+        return false;
+      return surfaceSelection.dataset_id
+        ? feature.properties?.source_dataset_id ===
+            surfaceSelection.dataset_id &&
+            feature.properties?.source_feature_key ===
+              surfaceSelection.feature_key &&
+            featureMatchesSelector(
+              feature,
+              surfaceSelection.selector,
+              layer.name,
+            )
+        : !feature.properties?.source_dataset_id &&
+            featureMatchesSelector(
+              feature,
+              surfaceSelection.selector,
+              layer.name,
+            );
+    });
+    return found
+      ? { type: "FeatureCollection" as const, features: [found] }
+      : emptyCollection;
+  }, [surfaceSelection, layers, outputDisplay]);
   useEffect(() => {
     const revision = ++displayRevision.current;
     if (!layers.length) {
@@ -697,7 +881,13 @@ export function App() {
     setContextMenu(null);
     if (mapRef.current)
       mapRef.current.getCanvas().style.cursor =
-        next === "pan" ? "" : next === "vertex" ? "grab" : "crosshair";
+        next === "pan"
+          ? ""
+          : next === "vertex"
+            ? "grab"
+            : next === "surface"
+              ? "pointer"
+              : "crosshair";
   };
   const deleteSelectedVertex = () => {
     const index = selectedVertex.current;
@@ -983,12 +1173,10 @@ export function App() {
           "road-facility-points",
           "circle",
           {
-            "circle-radius": [
-              "case",
-              ["==", ["get", "id"], selectedFacility ?? ""],
-              8,
-              5,
-            ],
+            "circle-radius": facilityMarkerRadiusExpression(
+              facilityDisplayScale,
+              selectedFacility,
+            ),
             "circle-color": [
               "case",
               ["==", ["get", "id"], selectedFacility ?? ""],
@@ -1006,7 +1194,7 @@ export function App() {
           { "icon-opacity": 0.98 },
           {
             "icon-image": ["get", "icon_name"],
-            "icon-size": 0.48,
+            "icon-size": facilityIconSizeExpression(facilityDisplayScale),
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
           },
@@ -1051,6 +1239,22 @@ export function App() {
             layout,
           } as any);
       }
+      map.setLayoutProperty(
+        "road-facility-icons",
+        "icon-size",
+        facilityIconSizeExpression(facilityDisplayScale) as any,
+      );
+      map.setPaintProperty(
+        "road-facility-points",
+        "circle-radius",
+        facilityMarkerRadiusExpression(facilityDisplayScale, selectedFacility),
+      );
+      map.setPaintProperty("road-facility-points", "circle-color", [
+        "case",
+        ["==", ["get", "id"], selectedFacility ?? ""],
+        "#f79009",
+        "#f04438",
+      ]);
       if (map.getLayer("road-route-line"))
         map.setLayoutProperty(
           "road-route-line",
@@ -1188,13 +1392,20 @@ export function App() {
             filter: ["==", "$type", "Point"],
             minzoom: 14,
             paint: {
-              "circle-radius": 4,
+              "circle-radius": facilityMarkerRadiusExpression(
+                facilityDisplayScale,
+              ) as any,
               "circle-color": componentColor,
               "circle-stroke-color": "#fff",
               "circle-stroke-width": 1.5,
             },
           });
         map.setPaintProperty(`${sourceId}-fill`, "fill-color", componentColor);
+        map.setPaintProperty(
+          `${sourceId}-circle`,
+          "circle-radius",
+          facilityMarkerRadiusExpression(facilityDisplayScale),
+        );
         map.setPaintProperty(
           `${sourceId}-fill`,
           "fill-opacity",
@@ -1389,6 +1600,25 @@ export function App() {
         if (map.getSource(previous)) map.removeSource(previous);
       }
       rasterLayerIds.current = activeRasterIds;
+      addOrSet("road-surface-selection", surfaceHighlight);
+      if (!map.getLayer("road-surface-selection-fill"))
+        map.addLayer({
+          id: "road-surface-selection-fill",
+          source: "road-surface-selection",
+          type: "fill",
+          paint: {
+            "fill-color": "#f59e0b",
+            "fill-opacity": 0.32,
+            "fill-outline-color": "#b45309",
+          },
+        });
+      map.setLayoutProperty(
+        "road-surface-selection-fill",
+        "visibility",
+        layerVisible.generated && tool === "surface" ? "visible" : "none",
+      );
+      // 成果数据源重建后仍把选择高亮置顶，避免被新添加的路面材质遮住。
+      map.moveLayer("road-surface-selection-fill");
     },
     [
       catalog,
@@ -1397,6 +1627,8 @@ export function App() {
       selectedFacility,
       tool,
       vertexSelection,
+      surfaceHighlight,
+      facilityDisplayScale,
     ],
   );
 
@@ -1603,6 +1835,64 @@ export function App() {
             drawRef.current = { tool: "facility", points: [] };
           }
         }
+      } else if (state.tool === "surface") {
+        const ids = [...outputLayerIds.current]
+          .map((id) => `${id}-fill`)
+          .filter((id) => map.getLayer(id));
+        const hit = ids.length
+          ? map.queryRenderedFeatures(event.point, { layers: ids })[0]
+          : undefined;
+        const layer =
+          productionLayersRef.current[Number(hit?.properties?.__output_layer)];
+        const feature =
+          layer?.collection.features[Number(hit?.properties?.__output_feature)];
+        if (
+          feature &&
+          ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
+        ) {
+          const properties = feature.properties ?? {};
+          const active = !properties.source_dataset_id
+            ? (projectRef.current.active_source_ref as
+                | {
+                    dataset_id: string;
+                    feature_key: string;
+                    part_index: number;
+                  }
+                | undefined)
+            : undefined;
+          const partIndex = Number(
+            properties.part_index ?? active?.part_index ?? 0,
+          );
+          const component = String(properties.component ?? layer.name);
+          setSurfaceSelection({
+            dataset_id: properties.source_dataset_id ?? active?.dataset_id,
+            feature_key: properties.source_feature_key ?? active?.feature_key,
+            part_index: partIndex,
+            selector: {
+              part_index: partIndex,
+              component,
+              ...(properties.side == null
+                ? {}
+                : { side: String(properties.side) }),
+              ...(properties.lane_index == null
+                ? {}
+                : { lane_index: Number(properties.lane_index) }),
+            },
+            label: String(properties.route_id ?? projectRef.current.route_id),
+            componentLabel: `${({ lane: "车道", median: "中央隔离带", shoulder: "路肩", emergency: "应急车道", slope: "边坡投影" } as Record<string, string>)[component] ?? component}${properties.side == null ? "" : ` · ${properties.side === "left" ? "左侧" : properties.side === "right" ? "右侧" : properties.side}`}${properties.lane_index == null ? "" : ` · 车道 ${properties.lane_index}`}`,
+          });
+          setSelectedFacility(null);
+          setPanel("road");
+          setShowLeft(true);
+          setStatus(
+            "已选中路面成果；可调整所在路段宽度或删除选中组成，原始参考线保持不变。",
+            "ok",
+          );
+        } else
+          setStatus(
+            "请点击已生成的路面；放大地图可更准确地选择车道、路肩等组成。",
+            "warn",
+          );
       } else if (state.tool === "vertex") {
         if (Date.now() - lastVertexDrag.current < 300) return;
         const features = map.queryRenderedFeatures(event.point, {
@@ -1801,19 +2091,27 @@ export function App() {
   function restoreHistory(snapshot: RoadProject) {
     const current = projectRef.current;
     const roadChanged = !sameRoadInputs(current, snapshot);
+    const restoredVersion = roadChanged
+      ? current.input_version + 1
+      : current.input_version;
+    const snapshotOutput =
+      snapshot.output?.input_version === snapshot.input_version
+        ? snapshot.output
+        : null;
     const restored = {
       ...snapshot,
-      input_version: roadChanged
-        ? current.input_version + 1
-        : current.input_version,
+      input_version: restoredVersion,
       output:
-        roadChanged || snapshot.road_output_cleared === true
+        snapshot.road_output_cleared === true
           ? null
-          : snapshot.output?.input_version === current.input_version
-            ? snapshot.output
-            : current.output,
+          : snapshotOutput
+            ? // 有效快照成果与其原输入一起恢复，并绑定新的版本以拒绝迟到任务。
+              { ...snapshotOutput, input_version: restoredVersion }
+            : roadChanged
+              ? null
+              : current.output,
     };
-    if (roadChanged || !restored.output) setRoadState("changed");
+    if (!restored.output) setRoadState("changed");
     else setRoadState("ready");
     projectRef.current = restored;
     setProject(restored);
@@ -2072,6 +2370,7 @@ export function App() {
         source_label: label,
         source_binding: binding ?? null,
         section:
+          override?.part_sections?.[String(partIndex)] ??
           override?.section ??
           mappedSectionForFeature(
             feature,
@@ -2307,6 +2606,8 @@ export function App() {
         data = JSON.parse(await file.text());
       }
       const normalized = normalizeProject(data);
+      setSurfaceSelection(null);
+      setSurfaceDelete(null);
       if (!(data as Record<string, unknown>).catalog) {
         normalized.catalog = {
           schema_version: 1,
@@ -2733,6 +3034,283 @@ export function App() {
       }
     }
   }
+  function replaceSurfaceDataset(
+    current: RoadProject,
+    dataset: SourceDataset,
+  ): RoadProject {
+    const next = {
+      ...current,
+      vector_basemaps: ((current.vector_basemaps as any[]) ?? []).map((item) =>
+        item.id === dataset.id ? dataset : item,
+      ),
+    };
+    return retainUnchangedSourceResults(current, next, dataset.id);
+  }
+  function deleteSurface(kind: "component" | "part") {
+    const selection = surfaceSelection;
+    if (!selection || jobRef.current) return;
+    textTransaction.current = null;
+    update((current) => {
+      if (selection.dataset_id && selection.feature_key) {
+        const dataset = normalizeSourceDatasets(
+          current.vector_basemaps,
+          sourceDefaults(current),
+        ).find((item) => item.id === selection.dataset_id);
+        if (!dataset) return current;
+        const changed =
+          kind === "part"
+            ? setPartExcluded(
+                dataset,
+                selection.feature_key,
+                selection.part_index,
+                true,
+              )
+            : setPartComponentExclusion(
+                dataset,
+                selection.feature_key,
+                selection.part_index,
+                selection.selector,
+                true,
+              );
+        return replaceSurfaceDataset(current, changed);
+      }
+      const selector = kind === "part" ? { part_index: 0 } : selection.selector;
+      return {
+        ...current,
+        surface_component_exclusions: [
+          ...((current.surface_component_exclusions as ComponentSelector[]) ??
+            []),
+          selector,
+        ],
+      };
+    });
+    setSurfaceDelete(null);
+    setStatus(
+      kind === "part"
+        ? "此路段成果已删除；参考线与属性保留，可恢复规则或撤销。"
+        : "选中组成已删除；其他车道与路肩保持不变，可撤销。",
+      "ok",
+    );
+  }
+  async function applySurfaceSection(section: RouteSection, reset = false) {
+    const selection = surfaceSelection;
+    if (!selection || jobRef.current) return;
+    if (!isTauri()) {
+      setStatus("路面宽度修改需要本地桌面引擎。", "warn");
+      return;
+    }
+    const input = projectRef.current;
+    const job: {
+      id: string;
+      cancelled: boolean;
+      cancelPreparation?: () => void;
+    } = { id: makeId(), cancelled: false };
+    jobRef.current = job;
+    setWorking(true);
+    setStatus("正在精确重生成所选路段；其他路段成果保持不变…");
+    try {
+      if (selection.dataset_id && selection.feature_key) {
+        const dataset = normalizeSourceDatasets(
+          input.vector_basemaps,
+          sourceDefaults(input),
+        ).find((item) => item.id === selection.dataset_id);
+        if (!dataset) throw new Error("所选来源已不存在，请重新选择路面。");
+        const changed = reset
+          ? resetPartEdits(dataset, selection.feature_key, selection.part_index)
+          : setPartSection(
+              dataset,
+              selection.feature_key,
+              selection.part_index,
+              section,
+            );
+        const index = changed.feature_keys.indexOf(selection.feature_key);
+        if (index < 0) throw new Error("所选来源记录已不存在。");
+        // 只向后台线程传递所选记录，不复制整张来源表或已有成果。
+        const prepared = await new Promise<{
+          tasks: SourceBatchTask[];
+          issues: SourceBatchIssue[];
+        }>((resolve, reject) => {
+          const worker = new Worker(
+            new URL("./sourceBatchWorker.ts", import.meta.url),
+            { type: "module" },
+          );
+          const finish = () => {
+            worker.terminate();
+            job.cancelPreparation = undefined;
+          };
+          job.cancelPreparation = () => {
+            finish();
+            reject(new Error("已取消路面校验"));
+          };
+          worker.onmessage = (event) => {
+            finish();
+            event.data.error
+              ? reject(new Error(event.data.error))
+              : resolve(event.data.value);
+          };
+          worker.onerror = (event) => {
+            finish();
+            reject(new Error(event.message || "路面校验失败"));
+          };
+          worker.postMessage({
+            datasets: [
+              {
+                ...changed,
+                collection: {
+                  ...changed.collection,
+                  features: [changed.collection.features[index]],
+                },
+                feature_keys: [selection.feature_key],
+              },
+            ],
+            project: {
+              route_id: input.route_id,
+              crs: input.crs,
+              section: input.section,
+              manual_section: input.manual_section,
+              source_mapping: input.source_mapping,
+              source_binding: input.source_binding,
+              scene_options: input.scene_options,
+            },
+          });
+        });
+        const task = prepared.tasks.find(
+          (item) => item.part_index === selection.part_index,
+        );
+        if (!task)
+          throw new Error(
+            prepared.issues.find(
+              (item) => item.part_index === selection.part_index,
+            )?.message ??
+              prepared.issues[0]?.message ??
+              "所选部件无法生成。",
+          );
+        if (job.cancelled) return;
+        const response = await invokeNative<unknown>("generate_road", {
+          request: task.request,
+          jobId: job.id,
+        });
+        if (job.cancelled || jobRef.current?.id !== job.id) return;
+        if (projectRef.current !== input) {
+          setStatus("生成期间工程发生变化，未提交旧版编辑；请重试。", "warn");
+          return;
+        }
+        textTransaction.current = null;
+        update((current) => {
+          const next = replaceSurfaceDataset(current, changed);
+          const old = next.source_batch_output as SourceBatchOutput | undefined;
+          const nextDatasets = normalizeSourceDatasets(
+            next.vector_basemaps,
+            sourceDefaults(next),
+          );
+          const byId = new Map(
+            nextDatasets.map((item) => [
+              item.id,
+              {
+                revision: item.revision,
+                keys: new Set(item.feature_keys),
+                excluded: new Set(item.excluded_keys ?? []),
+              },
+            ]),
+          );
+          const results = (
+            old?.scene_key === sceneInputKey(input) ? old.results : []
+          ).filter((item) => {
+            const dataset = byId.get(item.dataset_id);
+            return (
+              item.key !== task.key &&
+              dataset &&
+              old?.dataset_revisions[item.dataset_id] === dataset.revision &&
+              dataset.keys.has(item.feature_key) &&
+              !dataset.excluded.has(item.feature_key)
+            );
+          });
+          const result = {
+            ...task,
+            response,
+            request: {
+              ...task.request,
+              points: undefined,
+              point_count: task.request.points.length,
+            },
+          };
+          const all = [...results, result];
+          const active = current.active_source_ref as
+            | { dataset_id: string; feature_key: string; part_index: number }
+            | undefined;
+          return {
+            ...next,
+            source_batch_output: {
+              ...(old ?? {}),
+              ...makeSourceBatchOutput(
+                all,
+                Math.max(old?.total ?? 0, all.length),
+                {
+                  datasets: nextDatasets,
+                  scene_key: sceneInputKey(next),
+                },
+              ),
+            },
+            ...(active &&
+            active.dataset_id === selection.dataset_id &&
+            active.feature_key === selection.feature_key &&
+            active.part_index === selection.part_index
+              ? { output: null }
+              : {}),
+          };
+        });
+      } else {
+        const restored = reset
+          ? ((input.surface_original_section as RouteSection | undefined) ??
+            input.section)
+          : section;
+        const response = await invokeNative<unknown>("generate_road", {
+          request: {
+            route_id: input.route_id,
+            points: input.route_points,
+            crs: input.crs,
+            source: input.route_source,
+            section: restored,
+            scene_options: input.scene_options ?? {},
+          },
+          jobId: job.id,
+        });
+        if (job.cancelled || jobRef.current?.id !== job.id) return;
+        if (projectRef.current !== input) {
+          setStatus("生成期间工程发生变化，未提交旧版编辑；请重试。", "warn");
+          return;
+        }
+        textTransaction.current = null;
+        update(
+          (current) => ({
+            ...current,
+            section: restored,
+            surface_original_section:
+              current.surface_original_section ??
+              structuredClone(current.section),
+            ...(reset ? { surface_component_exclusions: [] } : {}),
+          }),
+          true,
+          response,
+        );
+      }
+      setRoadState("ready");
+      setStatus(
+        reset
+          ? "此路段原规则已恢复并重生成；其他路段不受影响。"
+          : "所选路段宽度已修改并精确重生成；可撤销本次编辑。",
+        "ok",
+      );
+    } catch (error) {
+      if (!job.cancelled)
+        setStatus(`路面编辑未提交：${errorMessage(error)}`, "error");
+    } finally {
+      if (jobRef.current?.id === job.id) {
+        jobRef.current = null;
+        setWorking(false);
+      }
+    }
+  }
   async function generate() {
     if (!ready) {
       setStatus("请先导入或绘制至少两个路线点。", "warn");
@@ -3119,6 +3697,8 @@ export function App() {
     () => ({
       getProject: () => structuredClone(projectRef.current),
       loadProject: (data: unknown) => {
+        setSurfaceSelection(null);
+        setSurfaceDelete(null);
         const normalized = normalizeProject(data);
         setProject(normalized);
         projectRef.current = normalized;
@@ -3185,12 +3765,14 @@ export function App() {
     tool === "route"
       ? "单击添加路线点，拖动顶点调整位置；Esc 完成绘制。"
       : tool === "vertex"
-        ? "拖动控制点调整位置，单击顶点删除；Esc 返回选择。"
-        : activeTemplate?.geometry === "Polygon"
-          ? "单击添加边界点，右键完成区域；Esc 取消未完成边界。"
-          : activeTemplate?.geometry === "LineString"
-            ? "依次点击起点与终点布设；Esc 退出布设。"
-            : "单击放置设施；Esc 退出布设。";
+        ? "编辑参考线：拖动控制点调整位置，Delete 删除；Esc 返回选择。"
+        : tool === "surface"
+          ? "点击已生成的路面，修改所在路段宽度或删除成果组成；Esc 返回选择。"
+          : activeTemplate?.geometry === "Polygon"
+            ? "单击添加边界点，右键完成区域；Esc 取消未完成边界。"
+            : activeTemplate?.geometry === "LineString"
+              ? "依次点击起点与终点布设；Esc 退出布设。"
+              : "单击放置设施；Esc 退出布设。";
   function toggleCompare() {
     if (!comparing) {
       compareBackup.current = layerVisible;
@@ -3403,6 +3985,15 @@ export function App() {
           label: "编辑路线顶点",
           run: () => setToolMode("vertex"),
           checked: tool === "vertex",
+        },
+        {
+          label: "编辑路面成果",
+          run: () => {
+            setToolMode("surface");
+            setStatus("点击生成的路面，调整宽度或删除组成。");
+          },
+          checked: tool === "surface",
+          disabled: !layers.length,
         },
         {
           label: "编辑横断面",
@@ -4023,64 +4614,166 @@ export function App() {
               }
             />
           )}
-          {panel === "road" && (
-            <RoadPanel
-              project={project}
-              update={update}
-              status={status}
-              busy={working}
-              onApplyAuto={(options) => {
-                update((current) => ({ ...current, scene_options: options }));
-                void generate();
-              }}
-              onClearAuto={() => {
-                update((current) => ({
-                  ...current,
-                  scene_options: { ...current.scene_options, enabled: [] },
-                }));
-                void generate();
-              }}
-            />
-          )}
+          {panel === "road" &&
+            !surfaceSelection &&
+            (savedSurfaceTargets.length > 0 ||
+              project.surface_original_section ||
+              (
+                project.surface_component_exclusions as
+                  | ComponentSelector[]
+                  | undefined
+              )?.length) && (
+              <details className="section-block">
+                <summary>已保存的路面编辑 · 可恢复被删除的成果</summary>
+                <div
+                  style={{
+                    maxHeight: 180,
+                    overflowY: "auto",
+                    display: "grid",
+                    gap: 6,
+                    marginTop: 8,
+                  }}
+                >
+                  {savedSurfaceTargets.map((target) => (
+                    <button
+                      key={`${target.dataset_id}/${target.feature_key}/${target.part_index}`}
+                      className="button outline"
+                      onClick={() => {
+                        setSurfaceSelection(target);
+                        setToolMode("surface");
+                      }}
+                    >
+                      {target.label} · 部件 {target.part_index + 1}
+                    </button>
+                  ))}
+                  {!project.active_source_ref &&
+                    (Boolean(project.surface_original_section) ||
+                      Boolean(
+                        (
+                          project.surface_component_exclusions as
+                            | ComponentSelector[]
+                            | undefined
+                        )?.length,
+                      )) && (
+                      <button
+                        className="button outline"
+                        onClick={() => {
+                          setSurfaceSelection({
+                            part_index: 0,
+                            selector: { part_index: 0 },
+                            label: project.route_id,
+                            componentLabel: "已保存的路段编辑",
+                          });
+                          setToolMode("surface");
+                        }}
+                      >
+                        当前手动路线
+                      </button>
+                    )}
+                </div>
+              </details>
+            )}
+          {panel === "road" &&
+            (surfaceSelection ? (
+              <GeneratedSurfaceEditor
+                key={`${surfaceSelection.dataset_id ?? "manual"}/${surfaceSelection.feature_key ?? ""}/${surfaceSelection.part_index}`}
+                selection={{
+                  label: surfaceSelection.label,
+                  componentLabel: surfaceSelection.componentLabel,
+                  partIndex: surfaceSelection.part_index,
+                  scopeLabel: surfaceSelection.dataset_id
+                    ? "所选来源记录的当前线部件"
+                    : "当前手动路线",
+                }}
+                section={surfaceSection}
+                busy={working}
+                onApply={applySurfaceSection}
+                onDeleteComponent={() =>
+                  surfaceSelection.selector.component
+                    ? setSurfaceDelete("component")
+                    : setStatus(
+                        "请先在地图点击具体的车道、路肩等组成；当前为路段级编辑。",
+                        "warn",
+                      )
+                }
+                onDeletePart={() => setSurfaceDelete("part")}
+                onReset={() => void applySurfaceSection(surfaceSection, true)}
+                onClose={() => {
+                  setSurfaceSelection(null);
+                  setToolMode("pan");
+                }}
+              />
+            ) : (
+              <RoadPanel
+                project={project}
+                update={update}
+                status={status}
+                busy={working}
+                onApplyAuto={(options) => {
+                  update((current) => ({ ...current, scene_options: options }));
+                  void generate();
+                }}
+                onClearAuto={() => {
+                  update((current) => ({
+                    ...current,
+                    scene_options: { ...current.scene_options, enabled: [] },
+                  }));
+                  void generate();
+                }}
+              />
+            ))}
           {panel === "facility" && (
-            <FacilityPanel
-              catalog={catalogEntries}
-              allCount={catalog.length}
-              query={catalogQuery}
-              setQuery={setCatalogQuery}
-              selected={selected}
-              facilities={project.manual_facilities}
-              setTemplate={(template) => {
-                setActiveTemplate(template);
-                setToolMode("facility");
-                setPanel("facility");
-                setStatus(
-                  `${template.name}：点击地图放置${template.geometry === "Point" ? "位置" : template.geometry === "LineString" ? "起点和终点" : "边界顶点"}`,
-                );
-              }}
-              activeId={
-                tool === "facility" ? (activeTemplate?.id ?? null) : null
-              }
-              categories={[...new Set(catalog.map((entry) => entry.category))]}
-              onNew={() => {
-                setTemplateAction({ kind: "new" });
-                setTemplateName("");
-              }}
-              onSelect={(id) => {
-                setSelectedFacility(id);
-                setShowInspector(true);
-                setToolMode("pan");
-              }}
-              onClone={(template) => {
-                setTemplateAction({ kind: "copy", template });
-                setTemplateName(`${template.subtype}（副本）`);
-              }}
-              onEdit={(template) =>
-                setTemplateEditor(structuredClone(template))
-              }
-              onImport={importCatalog}
-              onExport={exportCatalog}
-            />
+            <>
+              <FacilityDisplaySettings
+                value={facilityDisplayScale}
+                onChange={(value) =>
+                  update((current) => ({
+                    ...current,
+                    facility_display_scale: value,
+                  }))
+                }
+              />
+              <FacilityPanel
+                catalog={catalogEntries}
+                allCount={catalog.length}
+                query={catalogQuery}
+                setQuery={setCatalogQuery}
+                selected={selected}
+                facilities={project.manual_facilities}
+                setTemplate={(template) => {
+                  setActiveTemplate(template);
+                  setToolMode("facility");
+                  setPanel("facility");
+                  setStatus(
+                    `${template.name}：点击地图放置${template.geometry === "Point" ? "位置" : template.geometry === "LineString" ? "起点和终点" : "边界顶点"}`,
+                  );
+                }}
+                activeId={
+                  tool === "facility" ? (activeTemplate?.id ?? null) : null
+                }
+                categories={[
+                  ...new Set(catalog.map((entry) => entry.category)),
+                ]}
+                onNew={() => {
+                  setTemplateAction({ kind: "new" });
+                  setTemplateName("");
+                }}
+                onSelect={(id) => {
+                  setSelectedFacility(id);
+                  setShowInspector(true);
+                  setToolMode("pan");
+                }}
+                onClone={(template) => {
+                  setTemplateAction({ kind: "copy", template });
+                  setTemplateName(`${template.subtype}（副本）`);
+                }}
+                onEdit={(template) =>
+                  setTemplateEditor(structuredClone(template))
+                }
+                onImport={importCatalog}
+                onExport={exportCatalog}
+              />
+            </>
           )}
           {panel === "layers" && (
             <LayerPanel
@@ -4255,9 +4948,29 @@ export function App() {
                 <PenLine size={17} />
               </button>
               <button
+                className={tool === "surface" ? "selected" : ""}
+                onClick={() => {
+                  setToolMode("surface");
+                  setStatus("点击已生成的路面，进入宽度和成果删除编辑。");
+                }}
+                title="编辑路面成果：调整宽度、删除组成"
+                aria-label="编辑路面成果"
+                disabled={
+                  !layers.some((layer) =>
+                    layer.collection.features.some((feature) =>
+                      ["Polygon", "MultiPolygon"].includes(
+                        feature.geometry?.type,
+                      ),
+                    ),
+                  )
+                }
+              >
+                <Pencil size={17} />
+              </button>
+              <button
                 className={tool === "vertex" ? "selected" : ""}
                 onClick={() => setToolMode("vertex")}
-                title="编辑顶点：单击选择，拖动调整，Delete 删除"
+                title="编辑参考线顶点：单击选择，拖动调整，Delete 删除"
                 aria-label="编辑路线顶点"
               >
                 <Crosshair size={17} />
@@ -4618,10 +5331,12 @@ export function App() {
                 {tool === "route"
                   ? "绘制路线"
                   : tool === "vertex"
-                    ? "编辑顶点"
-                    : tool === "facility"
-                      ? "布设设施"
-                      : "选择 / 平移"}
+                    ? "编辑参考线"
+                    : tool === "surface"
+                      ? "编辑路面"
+                      : tool === "facility"
+                        ? "布设设施"
+                        : "选择 / 平移"}
               </span>
             </div>
           </div>
@@ -4892,6 +5607,39 @@ export function App() {
           <p>
             真实三维、影像 AI 提取和截图配准尚未实现；倾斜视角仅为二维成果示意。
           </p>
+        </Modal>
+      )}
+      {surfaceDelete && surfaceSelection && (
+        <Modal
+          title={
+            surfaceDelete === "part" ? "删除此路段成果？" : "删除选中组成？"
+          }
+          onCancel={() => setSurfaceDelete(null)}
+        >
+          <p>
+            {surfaceSelection.label} · 部件 {surfaceSelection.part_index + 1}
+            {surfaceDelete === "component"
+              ? ` · ${surfaceSelection.componentLabel}`
+              : " · 全部成果组成"}
+          </p>
+          <p>
+            仅删除对应成果，不删除来源路线和属性。规则会随工程保存并作用于后续生成与导出；可撤销或在编辑面板恢复。
+          </p>
+          <div className="dialog-actions">
+            <button
+              className="button outline"
+              onClick={() => setSurfaceDelete(null)}
+            >
+              取消
+            </button>
+            <button
+              className="button danger"
+              disabled={working}
+              onClick={() => deleteSurface(surfaceDelete)}
+            >
+              确认删除
+            </button>
+          </div>
         </Modal>
       )}
       {leaveDialog && (

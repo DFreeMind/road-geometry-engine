@@ -28,7 +28,7 @@ Windows 下双击 `start.cmd`，或执行：
 .\launch.ps1 -LegacyQgis
 ```
 
-旧版完整使用说明见 [旧 QGIS 客户端](docs/legacy-qgis-client.md)。新旧客户端共用同一个 Rust 引擎。
+旧版完整使用说明见 [旧 QGIS 客户端](docs/legacy-qgis-client.md)。新旧客户端共用同一个 Rust 引擎。当前客户端的部件宽度修改、成果删除恢复及设施符号倍率见 [路面成果编辑与设施显示](docs/generated-surface-editing.md)。
 
 ## 工作台
 

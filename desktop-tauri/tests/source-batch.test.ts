@@ -292,6 +292,51 @@ describe("source batch preparation", () => {
     expect(failed.issues[0].message).toContain("missing_column");
   });
 
+  it("prefers a per-part section and changes only that part's generation signature", () => {
+    const source = dataset([
+      {
+        type: "Feature",
+        id: "multi-section",
+        properties: { route_id: "R-M" },
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [116, 40],
+              [116.01, 40],
+            ],
+            [
+              [117, 40],
+              [117.01, 40],
+            ],
+          ],
+        },
+      },
+    ]);
+    const key = source.feature_keys[0];
+    const baseline = prepareSourceBatch([source], defaultProject()).tasks;
+    const partSection = {
+      ...manual,
+      left_lanes: [4, 4],
+      right_lanes: [3],
+      left_shoulder_width: 1.25,
+    };
+    const edited = {
+      ...source,
+      route_overrides: {
+        [key]: {
+          section: { ...manual },
+          part_sections: { "1": partSection },
+        },
+      },
+    };
+    const tasks = prepareSourceBatch([edited], defaultProject()).tasks;
+    expect(tasks[0].request.section.left_lanes).toEqual([3.5, 3.5]);
+    expect(tasks[1].request.section).toEqual(partSection);
+    expect(tasks[0].input_signature).toBe(baseline[0].input_signature);
+    expect(tasks[1].input_signature).not.toBe(baseline[1].input_signature);
+  });
+
   it("preserves long parts completely and filters excluded keys", () => {
     const long = Array.from({ length: 2_001 }, (_item, index) => [
       116 + index / 1_000_000,

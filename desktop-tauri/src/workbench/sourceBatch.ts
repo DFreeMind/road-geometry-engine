@@ -14,6 +14,10 @@ import {
 } from "../domain";
 import type { SourceBinding, FieldMapping } from "./connections";
 import type { Field } from "./DataSourceTools";
+import {
+  filterGeneratedComponentLayers,
+  type ComponentSelector,
+} from "./generatedSurfaceEdits";
 
 export type SourceDataset = {
   id: string;
@@ -30,7 +34,12 @@ export type SourceDataset = {
   manual_section?: RouteSection;
   route_overrides?: Record<
     string,
-    { parts?: Record<string, Position[]>; section?: RouteSection }
+    {
+      parts?: Record<string, Position[]>;
+      section?: RouteSection;
+      part_sections?: Record<string, RouteSection>;
+      component_exclusions?: ComponentSelector[];
+    }
   >;
   revision?: number;
   [key: string]: unknown;
@@ -679,14 +688,17 @@ export function prepareSourceBatch(
         }
         let section: RouteSection;
         try {
-          section = override?.section
-            ? validateSection(override.section)
-            : mappedSectionForFeature(
-                feature,
-                mapping,
-                dataset.manual_section ??
-                  (project.manual_section as RouteSection | undefined),
-              );
+          const partSection = override?.part_sections?.[String(partIndex)];
+          section = partSection
+            ? validateSection(partSection)
+            : override?.section
+              ? validateSection(override.section)
+              : mappedSectionForFeature(
+                  feature,
+                  mapping,
+                  dataset.manual_section ??
+                    (project.manual_section as RouteSection | undefined),
+                );
         } catch (error) {
           issues.push({
             dataset_id: dataset.id,
@@ -819,19 +831,36 @@ export function batchOutputLayers(
       const groupKey = canonical([result.dataset_id, componentName, crs]);
       const group = groups.get(groupKey) ?? { name, crs, features: [] };
       groups.set(groupKey, group);
-      for (const rawFeature of collection.features as Feature[]) {
-        // 成果几何不可变；聚合只创建属性包装，避免复制长路线全部坐标。
-        const feature = { ...rawFeature };
-        feature.properties = {
-          ...result.source_properties,
-          ...(feature.properties ?? {}),
-          source_attributes: structuredClone(result.source_properties),
-          source_dataset_id: result.dataset_id,
-          source_feature_key: result.feature_key,
-          part_index: result.part_index,
-        };
-        group.features.push(feature);
-      }
+      const taggedFeatures = (collection.features as Feature[]).map(
+        (rawFeature) => {
+          // 成果几何不可变；只包装属性以携带可追溯来源和部件信息。
+          const feature = { ...rawFeature };
+          feature.properties = {
+            ...result.source_properties,
+            ...(feature.properties ?? {}),
+            source_attributes: structuredClone(result.source_properties),
+            source_dataset_id: result.dataset_id,
+            source_feature_key: result.feature_key,
+            part_index: result.part_index,
+          };
+          return feature;
+        },
+      );
+      const visibleFeatures = filterGeneratedComponentLayers(
+        [
+          {
+            name: componentName,
+            crs,
+            collection: {
+              ...(collection as FeatureCollection),
+              features: taggedFeatures,
+            },
+          },
+        ],
+        datasets.find((dataset) => dataset.id === result.dataset_id)
+          ?.route_overrides?.[result.feature_key]?.component_exclusions ?? [],
+      )[0]?.collection.features as Feature[] | undefined;
+      for (const feature of visibleFeatures ?? []) group.features.push(feature);
     }
   }
   const outputGroups = [...groups.values()];

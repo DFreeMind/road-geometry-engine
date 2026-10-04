@@ -887,6 +887,8 @@ try {
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
   await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
   await waitFor('!document.querySelector(".route-feature-selector__column-popover") && Boolean(document.querySelector(".route-feature-selector"))');
+  // 浮层关闭后的焦点由下一动画帧恢复，等待实际焦点，避免与界面提交时序竞争。
+  await waitFor('document.activeElement===document.querySelector("[aria-controls=route-feature-column-panel]")',5);
   assert(await evaluate('document.activeElement===document.querySelector("[aria-controls=route-feature-column-panel]")'), '关闭字段浮层应恢复触发按钮焦点');
   check('紧凑路线选择工具栏、字段搜索批量显示及Esc局部关闭',true);
   await screenshot('39-route-attribute-columns.png');
