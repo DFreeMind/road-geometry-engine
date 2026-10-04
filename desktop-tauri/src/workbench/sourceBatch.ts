@@ -157,32 +157,97 @@ function collectionFingerprint(collection: FeatureCollection): string {
   return fingerprint;
 }
 
-const featureIdentities = new WeakMap<
-  Feature,
-  { base: string; content: string }
->();
-function featureIdentity(feature: Feature): { base: string; content: string } {
+type FeatureIdentity = { base: string; fingerprint: string };
+
+const featureIdentities = new WeakMap<Feature, FeatureIdentity>();
+function featureIdentity(feature: Feature): FeatureIdentity {
   const cached = featureIdentities.get(feature);
   if (cached) return cached;
-  const content = canonical(feature);
-  const fingerprint = hash(content);
+  const fingerprint = hash(canonical(feature));
   const identity =
     feature.id !== undefined && feature.id !== null
       ? {
           base: `fid:${encodeURIComponent(String(feature.id))}:${fingerprint}`,
-          content,
+          fingerprint,
         }
-      : { base: `content:${fingerprint}`, content };
+      : { base: `content:${fingerprint}`, fingerprint };
   featureIdentities.set(feature, identity);
   return identity;
+}
+
+const featureKeyCache = new WeakMap<
+  Feature[],
+  { preferred?: string[]; keys: string[] }
+>();
+const featureLookupCache = new WeakMap<
+  Feature[],
+  { byReference: Map<Feature, number>; byId: Map<string, number[]> }
+>();
+const featureKeyIndexes = new WeakMap<string[], Map<string, number>>();
+
+function featureKeyIndex(keys: string[]): Map<string, number> {
+  const cached = featureKeyIndexes.get(keys);
+  if (cached) return cached;
+  const index = new Map<string, number>();
+  keys.forEach((key, position) => {
+    if (!index.has(key)) index.set(key, position);
+  });
+  featureKeyIndexes.set(keys, index);
+  return index;
+}
+
+/** 先按稳定键或对象引用查找；结构回退只检查同 ID、同指纹候选。 */
+export function findSourceFeatureIndex(
+  dataset: Pick<SourceDataset, "collection" | "feature_keys">,
+  feature: Feature,
+  requestedKey?: string,
+): number {
+  if (requestedKey !== undefined)
+    return featureKeyIndex(dataset.feature_keys).get(requestedKey) ?? -1;
+
+  const features = dataset.collection.features as Feature[];
+  let lookup = featureLookupCache.get(features);
+  if (!lookup) {
+    const byReference = new Map<Feature, number>();
+    const byId = new Map<string, number[]>();
+    features.forEach((candidate, index) => {
+      byReference.set(candidate, index);
+      if (candidate.id === undefined || candidate.id === null) return;
+      const id = String(candidate.id);
+      const candidates = byId.get(id);
+      if (candidates) candidates.push(index);
+      else byId.set(id, [index]);
+    });
+    lookup = { byReference, byId };
+    featureLookupCache.set(features, lookup);
+  }
+  const referenced = lookup.byReference.get(feature);
+  if (referenced !== undefined) return referenced;
+  if (feature.id === undefined || feature.id === null) return -1;
+
+  const candidates = lookup.byId.get(String(feature.id)) ?? [];
+  if (!candidates.length) return -1;
+  const fingerprint = featureIdentity(feature).fingerprint;
+  const content = canonical(feature);
+  return (
+    candidates.find((index) => {
+      const candidate = features[index];
+      return (
+        featureIdentity(candidate).fingerprint === fingerprint &&
+        canonical(candidate) === content
+      );
+    }) ?? -1
+  );
 }
 
 function uniqueFeatureKeys(
   features: Feature[],
   preferred?: string[],
 ): string[] {
+  const cached = featureKeyCache.get(features);
+  if (cached && cached.preferred === preferred) return cached.keys;
   const used = new Set<string>();
-  return features.map((feature, index) => {
+  const keys = features.map((feature, index) => {
     const raw = preferred?.[index];
     const base =
       typeof raw === "string" && raw ? raw : featureIdentity(feature).base;
@@ -192,6 +257,9 @@ function uniqueFeatureKeys(
     used.add(key);
     return key;
   });
+  featureKeyCache.set(features, { preferred, keys });
+  featureKeyIndexes.set(keys, new Map(keys.map((key, index) => [key, index])));
+  return keys;
 }
 
 function fieldsUnion(first: Field[], second: Field[]): Field[] {
@@ -268,7 +336,7 @@ export function normalizeSourceDataset(
       : {}),
     ...(manual ? { manual_section: structuredClone(manual) } : {}),
     ...(layer.route_overrides
-      ? { route_overrides: structuredClone(layer.route_overrides) }
+      ? { route_overrides: layer.route_overrides }
       : {}),
     revision:
       Number.isInteger(layer.revision) && (layer.revision ?? 0) >= 0
@@ -322,13 +390,20 @@ export function appendDataset(
       );
   const features = [...base.collection.features] as Feature[];
   const featureKeys = [...base.feature_keys];
-  const existingExact = new Set(
-    features.map((feature) => featureIdentity(feature).content),
-  );
+  const existingExact = new Map<string, Feature[]>();
+  for (const feature of features) {
+    const fingerprint = featureIdentity(feature).fingerprint;
+    const matches = existingExact.get(fingerprint);
+    if (matches) matches.push(feature);
+    else existingExact.set(fingerprint, [feature]);
+  }
   const usedKeys = new Set(featureKeys);
   for (const feature of incomingFeatures) {
     const identity = featureIdentity(feature);
-    if (existingExact.has(identity.content)) continue;
+    const matches = existingExact.get(identity.fingerprint);
+    const content = matches?.length ? canonical(feature) : undefined;
+    if (matches?.some((candidate) => canonical(candidate) === content))
+      continue;
     let key = identity.base;
     let suffix = 2;
     while (usedKeys.has(key)) key = `${identity.base}~${suffix++}`;
@@ -337,9 +412,12 @@ export function appendDataset(
     features.push(copy);
     featureKeys.push(key);
     usedKeys.add(key);
-    existingExact.add(identity.content);
+    const nextMatches = existingExact.get(identity.fingerprint);
+    if (nextMatches) nextMatches.push(copy);
+    else existingExact.set(identity.fingerprint, [copy]);
   }
   const excluded = new Set(base.excluded_keys ?? []);
+  const validKeys = new Set(featureKeys);
   return {
     ...base,
     ...(canAppend ? {} : { id: base.id, source_label: label, label }),
@@ -353,7 +431,7 @@ export function appendDataset(
     ...(defaults.mapping && !base.mapping
       ? { mapping: { ...defaults.mapping } }
       : {}),
-    excluded_keys: [...excluded].filter((key) => featureKeys.includes(key)),
+    excluded_keys: [...excluded].filter((key) => validKeys.has(key)),
     revision: (base.revision ?? 0) + 1,
   };
 }
@@ -731,6 +809,8 @@ export function prepareSourceBatch(
             part_index: partIndex,
             input_signature: hash(
               canonical({
+                // 几何规则升级后不复用旧算法成果，源数据与人工覆盖保持不变。
+                geometry_rule_version: "offset-local-loops-v3-outer-round-join",
                 request: {
                   ...request,
                   scene_options: {
@@ -838,7 +918,8 @@ export function batchOutputLayers(
           feature.properties = {
             ...result.source_properties,
             ...(feature.properties ?? {}),
-            source_attributes: structuredClone(result.source_properties),
+            // 来源属性不可变，所有组件共享追溯对象，避免每条车道重复深拷贝整行。
+            source_attributes: result.source_properties,
             source_dataset_id: result.dataset_id,
             source_feature_key: result.feature_key,
             part_index: result.part_index,
@@ -889,7 +970,9 @@ function componentGroups(
         feature.properties?.layer_name ??
         "道路成果",
     );
-    groups.set(name, [...(groups.get(name) ?? []), feature]);
+    const features = groups.get(name);
+    if (features) features.push(feature);
+    else groups.set(name, [feature]);
   }
   return [...groups].map(([name, features]) => ({
     name,

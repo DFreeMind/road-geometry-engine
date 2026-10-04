@@ -11,6 +11,15 @@ import {
 import { MapScaleZoomControl } from "./MapScaleZoomControl";
 import { MapCoordinateReadout } from "./MapCoordinateReadout";
 import type { OutputDisplayLayer } from "./mapDisplay";
+import { projectHistorySnapshot } from "./projectHistory";
+import { routeVertexDisplay } from "./routeVertexDisplay";
+import { outputDisplayChunks } from "./displayChunks";
+import { laneMarkingLayers } from "./laneMarkings";
+import { useGenerationIssuesBridge } from "./GenerationIssuesBridge";
+import {
+  geometryDiagnostics,
+  responseGeometryCollections,
+} from "./geometryDiagnostics";
 const displayCrsDefinitions: Record<string, string> = {};
 import {
   useCallback,
@@ -104,10 +113,22 @@ import { chooseFile, chooseSave } from "../tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { SourceDatasetManager } from "./SourceDatasetManager";
+import {
+  GenerationIssuesPanel,
+  type GenerationIssueRow,
+} from "./GenerationIssuesPanel";
+import {
+  generationIssueRows,
+  generationReviewIssues,
+  generationTargetMatcher,
+  mergeGenerationFailures,
+  type GenerationTarget,
+} from "./generationIssues";
 import { exportLayerNames } from "./exportLayerNames";
 import {
   appendDataset,
   normalizeSourceDatasets,
+  findSourceFeatureIndex,
   removeDatasetFeatures,
   setDatasetIncluded,
   prepareSourceBatch,
@@ -167,6 +188,7 @@ const emptyCollection: GeoJSON.FeatureCollection = {
   features: [],
 };
 const emptyOptions: Record<string, unknown> = {};
+const emptyOutputLayers: OutputDisplayLayer[] = [];
 let rasterProtocolRegistered = false;
 const invokeNative = <T,>(command: string, args?: Record<string, unknown>) =>
   invoke<T>(command, args);
@@ -277,7 +299,9 @@ function responseLayers(
           feature.properties?.layer_name ??
           "道路成果",
       );
-      groups.set(name, [...(groups.get(name) ?? []), feature]);
+      const group = groups.get(name);
+      if (group) group.push(feature);
+      else groups.set(name, [feature]);
     }
     for (const [name, features] of groups)
       layers.push({
@@ -326,6 +350,12 @@ export function App() {
   const rasterLayerIds = useRef<Set<string>>(new Set());
   const vectorLayerIds = useRef<Set<string>>(new Set());
   const sourceDataCache = useRef(new Map<string, GeoJSON.FeatureCollection>());
+  const selectedRouteDisplay = useRef<{
+    points: Position[];
+    crs: string;
+    collection: GeoJSON.FeatureCollection;
+  } | null>(null);
+  const refreshRouteVertices = useRef<() => void>(() => {});
   const routeDisplayCache = useRef(
     new WeakMap<GeoJSON.FeatureCollection, GeoJSON.FeatureCollection>(),
   );
@@ -343,6 +373,11 @@ export function App() {
   const historyRef = useRef<RoadProject[]>([]);
   const redoRef = useRef<RoadProject[]>([]);
   const textTransaction = useRef<Element | null>(null);
+  const routeEditPreparation = useRef<{ cancel: () => void } | null>(null);
+  const qaEditSource = useRef<(id: string, key: string) => Promise<void>>(
+    async () => {},
+  );
+  useEffect(() => () => routeEditPreparation.current?.cancel(), []);
   const editRevisionRef = useRef(0);
   const savedRevisionRef = useRef(0);
   const catalogRef = useRef<CatalogEntry[]>(basicCatalog);
@@ -518,7 +553,7 @@ export function App() {
         if (!coalesce)
           historyRef.current = [
             ...historyRef.current.slice(-39),
-            structuredClone(current),
+            projectHistorySnapshot(current),
           ];
         setHistoryCount(historyRef.current.length);
       }
@@ -633,9 +668,48 @@ export function App() {
   const sourceDatasets = useMemo(
     () =>
       normalizeSourceDatasets(project.vector_basemaps, sourceDefaults(project)),
-    [project.vector_basemaps, project.manual_section, project.section],
+    // 来源保存独立模板；切换当前编辑路线不重新规范化整表或重建批量显示成果。
+    [project.vector_basemaps],
   );
   const geometrySceneKey = sceneInputKey(project);
+  const generationRows = useMemo(
+    () =>
+      generationIssueRows(
+        sourceDatasets,
+        (project.source_batch_issues as SourceBatchIssue[] | undefined) ?? [],
+        (project.source_batch_failures as SourceBatchIssue[] | undefined) ??
+          (
+            (project.source_batch_output as SourceBatchOutput | undefined)
+              ?.results ?? []
+          )
+            .filter((result) => result.error)
+            .map((result) => ({
+              ...result,
+              code: "engine_error",
+              message: result.error!,
+            })),
+        (project.source_batch_output as SourceBatchOutput | undefined)
+          ?.scene_key === geometrySceneKey
+          ? generationReviewIssues(
+              project.source_batch_output as SourceBatchOutput,
+              sourceDatasets,
+            )
+          : [],
+      ),
+    [
+      sourceDatasets,
+      project.source_batch_issues,
+      project.source_batch_failures,
+      project.source_batch_output,
+      geometrySceneKey,
+    ],
+  );
+  useGenerationIssuesBridge(generationRows, working, {
+    onRetry: (rows) => void generateAllSources(rows),
+    onLocate: locateGenerationIssue,
+    onEdit: (row) => void editGenerationIssue(row),
+    onMapping: (row) => setMappingDatasetId(row.dataset_id),
+  });
   const validBatchOutput = useMemo(() => {
     const output = project.source_batch_output as SourceBatchOutput | undefined;
     if (!output || output.scene_key !== geometrySceneKey) return undefined;
@@ -662,24 +736,32 @@ export function App() {
       }),
     };
   }, [project.source_batch_output, geometrySceneKey, sourceDatasets]);
-  const layers = useMemo(
-    () => [
-      ...(project.output?.input_version === project.input_version
+  const singleOutput =
+    project.output?.input_version === project.input_version
+      ? project.output
+      : null;
+  const singleLayers = useMemo(
+    () =>
+      singleOutput
         ? filterGeneratedComponentLayers(
-            responseLayers(project.output.response),
+            responseLayers(singleOutput.response),
             singleSurfaceExclusions(project),
           )
-        : []),
-      ...batchOutputLayers(validBatchOutput, sourceDatasets),
-    ],
+        : emptyOutputLayers,
     [
-      project.output,
-      project.input_version,
+      singleOutput,
       project.surface_component_exclusions,
       project.active_source_ref,
-      validBatchOutput,
-      sourceDatasets,
+      project.vector_basemaps,
     ],
+  );
+  const batchLayers = useMemo(
+    () => batchOutputLayers(validBatchOutput, sourceDatasets),
+    [validBatchOutput, sourceDatasets],
+  );
+  const layers = useMemo(
+    () => [...singleLayers, ...batchLayers],
+    [singleLayers, batchLayers],
   );
   const productionLayersRef = useRef(layers);
   productionLayersRef.current = layers;
@@ -793,27 +875,52 @@ export function App() {
     setOutputDisplay(null);
     setDisplayPreparing(true);
     const started = performance.now();
+    const chunks = outputDisplayChunks(layers as OutputDisplayLayer[]);
+    const features: GeoJSON.Feature[] = [];
+    let coordinateCount = 0;
+    let cancelled = false;
+    const pump = () => {
+      if (cancelled || displayRevision.current !== revision) return;
+      const next = chunks.next();
+      if (next.done) {
+        setOutputDisplay({ type: "FeatureCollection", features });
+        setDisplayPreparing(false);
+        displayMetrics.current = {
+          feature_count: features.length,
+          coordinate_count: coordinateCount,
+          source_layer_count: layers.length,
+          preparation_ms: performance.now() - started,
+          revision,
+        };
+        worker.terminate();
+      } else
+        worker.postMessage({
+          kind: "chunk",
+          revision,
+          ...next.value,
+          crs_definitions: displayCrsDefinitions,
+        });
+    };
     worker.onmessage = (event) => {
       if (
         displayRevision.current !== revision ||
         event.data.revision !== revision
       )
         return;
-      setDisplayPreparing(false);
-      if (event.data.error)
+      if (event.data.error) {
+        setDisplayPreparing(false);
         setStatus(
           `地图显示副本准备失败：${event.data.error}；生产成果仍保留。`,
           "error",
         );
-      else {
-        setOutputDisplay(event.data.value.collection);
-        displayMetrics.current = {
-          ...event.data.value.metrics,
-          preparation_ms: performance.now() - started,
-          revision,
-        };
+        worker.terminate();
+      } else {
+        for (const feature of event.data.value.collection.features)
+          features.push(feature);
+        coordinateCount += event.data.value.metrics.coordinate_count;
+        // 每次只保留一块线程输入，主动让出界面事件处理机会。
+        setTimeout(pump, 0);
       }
-      worker.terminate();
     };
     worker.onerror = (event) => {
       if (displayRevision.current !== revision) return;
@@ -824,12 +931,9 @@ export function App() {
       );
       worker.terminate();
     };
-    worker.postMessage({
-      revision,
-      layers: layers as OutputDisplayLayer[],
-      crs_definitions: displayCrsDefinitions,
-    });
+    pump();
     return () => {
+      cancelled = true;
       worker.terminate();
     };
   }, [layers]);
@@ -1101,7 +1205,19 @@ export function App() {
 
   const syncMap = useCallback(
     (map: MapLibreMap, current: RoadProject) => {
-      const route = routeToGeoJSON(current.route_points, current.crs);
+      let cachedRoute = selectedRouteDisplay.current;
+      if (
+        cachedRoute?.points !== current.route_points ||
+        cachedRoute.crs !== current.crs
+      ) {
+        cachedRoute = {
+          points: current.route_points,
+          crs: current.crs,
+          collection: routeToGeoJSON(current.route_points, current.crs),
+        };
+        selectedRouteDisplay.current = cachedRoute;
+      }
+      const route = cachedRoute.collection;
       const addOrSet = (id: string, data: GeoJSON.FeatureCollection) => {
         const source = map.getSource(id) as
           | maplibregl.GeoJSONSource
@@ -1120,21 +1236,31 @@ export function App() {
         sourceDataCache.current.set(id, data);
       };
       addOrSet("road-route", route);
-      addOrSet("road-route-vertices", {
-        type: "FeatureCollection",
-        features: current.route_points.map((point, index) => ({
-          type: "Feature",
-          id: index,
-          properties: {
-            index,
-            current: index === current.route_points.length - 1,
-          },
-          geometry: {
-            type: "Point",
-            coordinates: transformPosition(point, current.crs, "EPSG:4326"),
-          },
-        })),
-      });
+      const syncVertices = () => {
+        const bounds = map.getBounds();
+        const canvas = map.getCanvas();
+        const coordinates =
+          (route.features[0]?.geometry as GeoJSON.LineString | undefined)
+            ?.coordinates ?? [];
+        addOrSet(
+          "road-route-vertices",
+          tool === "vertex" && layerVisible.route
+            ? routeVertexDisplay(
+                coordinates,
+                [
+                  bounds.getWest(),
+                  bounds.getSouth(),
+                  bounds.getEast(),
+                  bounds.getNorth(),
+                ],
+                { width: canvas.clientWidth, height: canvas.clientHeight },
+                selectedVertex.current,
+              )
+            : emptyCollection,
+        );
+      };
+      refreshRouteVertices.current = syncVertices;
+      syncVertices();
       const facilities = geomCollection(current.manual_facilities, current.crs);
       facilities.features.forEach((feature, index) => {
         feature.properties = {
@@ -1412,10 +1538,19 @@ export function App() {
           components ? 0.48 : 0.94,
         );
         map.setPaintProperty(`${sourceId}-line`, "line-color", componentColor);
-        map.setFilter(
-          `${sourceId}-line`,
+        map.setFilter(`${sourceId}-line`, [
+          "all",
           components ? ["!=", "$type", "Point"] : ["==", "$type", "LineString"],
-        );
+          ["!=", "component", "markings"],
+        ]);
+        for (const marking of laneMarkingLayers(sourceId)) {
+          if (!map.getLayer(marking.id)) map.addLayer(marking);
+          map.setLayoutProperty(
+            marking.id,
+            "visibility",
+            layerVisible.generated ? "visible" : "none",
+          );
+        }
         map.setPaintProperty(`${sourceId}-line`, "line-width", [
           "match",
           ["get", "component"],
@@ -1475,7 +1610,14 @@ export function App() {
       }
       for (const previous of outputLayerIds.current)
         if (!activeOutputIds.has(previous)) {
-          for (const suffix of ["fill", "texture", "line", "circle"])
+          for (const suffix of [
+            "fill",
+            "texture",
+            "line",
+            "circle",
+            "markings-solid",
+            "markings-dashed",
+          ])
             if (map.getLayer(`${previous}-${suffix}`))
               map.removeLayer(`${previous}-${suffix}`);
           if (map.getSource(previous)) map.removeSource(previous);
@@ -1766,6 +1908,7 @@ export function App() {
       setContextMenu({ x: event.point.x, y: event.point.y });
     });
     map.on("moveend", () => {
+      refreshRouteVertices.current();
       const center = map.getCenter();
       update(
         (current) => ({
@@ -2073,7 +2216,7 @@ export function App() {
   function undo() {
     const previous = historyRef.current.pop();
     if (!previous) return;
-    redoRef.current.push(structuredClone(projectRef.current));
+    redoRef.current.push(projectHistorySnapshot(projectRef.current));
     restoreHistory(previous);
     setRedoCount(redoRef.current.length);
     setHistoryCount(historyRef.current.length);
@@ -2082,7 +2225,7 @@ export function App() {
   function redo() {
     const next = redoRef.current.pop();
     if (!next) return;
-    historyRef.current.push(structuredClone(projectRef.current));
+    historyRef.current.push(projectHistorySnapshot(projectRef.current));
     restoreHistory(next);
     setRedoCount(redoRef.current.length);
     setHistoryCount(historyRef.current.length);
@@ -2288,12 +2431,12 @@ export function App() {
     binding?: SourceBinding,
     sourceFields?: Field[],
     datasetId?: string,
+    requestedPart?: number,
+    requestedFeatureKey?: string,
   ) {
     try {
-      const datasets = normalizeSourceDatasets(
-        projectRef.current.vector_basemaps,
-        sourceDefaults(projectRef.current),
-      );
+      const initialProject = projectRef.current;
+      const datasets = sourceDatasets;
       const dataset = datasets.find((item) =>
         datasetId
           ? item.id === datasetId
@@ -2301,14 +2444,16 @@ export function App() {
             ? item.binding?.fingerprint === binding.fingerprint
             : !item.binding && item.source_label === label,
       );
-      const featureIndex =
-        dataset?.collection.features.findIndex(
-          (item) =>
-            item === feature ||
-            JSON.stringify(item) === JSON.stringify(feature),
-        ) ?? -1;
+      const featureIndex = dataset
+        ? findSourceFeatureIndex(dataset, feature, requestedFeatureKey)
+        : -1;
       const featureKey = dataset?.feature_keys[featureIndex];
-      let coords = pickLinePart(feature.geometry);
+      let coords =
+        requestedPart !== undefined &&
+        feature.geometry?.type === "MultiLineString"
+          ? feature.geometry.coordinates[requestedPart]
+          : pickLinePart(feature.geometry);
+      if (!Array.isArray(coords)) throw new Error("找不到需要编辑的线部件。");
       const partIndex =
         feature.geometry?.type === "MultiLineString"
           ? feature.geometry.coordinates.indexOf(coords)
@@ -2323,7 +2468,64 @@ export function App() {
         );
       const targetCrs = utmCrsForWgs84(coords[Math.floor(coords.length / 2)]);
       await ensureCrs(projectRef.current.crs);
-      const converted = reprojectProject(projectRef.current, targetCrs);
+      routeEditPreparation.current?.cancel();
+      setStatus(`正在准备路线编辑 · ${coords.length} 个控制点…`);
+      const points = await new Promise<Position[]>((resolve, reject) => {
+        const worker = new Worker(
+          new URL("./routeEditWorker.ts", import.meta.url),
+          { type: "module" },
+        );
+        const task = {
+          cancel: () => {
+            worker.terminate();
+            reject(new Error("路线编辑准备已取消。"));
+          },
+        };
+        routeEditPreparation.current = task;
+        const finish = () => {
+          worker.terminate();
+          if (routeEditPreparation.current === task)
+            routeEditPreparation.current = null;
+        };
+        worker.onmessage = ({ data }) => {
+          finish();
+          if (data.error) reject(new Error(data.error));
+          else resolve(data.points);
+        };
+        worker.onerror = (event) => {
+          finish();
+          reject(new Error(event.message));
+        };
+        worker.postMessage({ coordinates: coords, crs: targetCrs });
+      });
+      if (
+        projectRef.current.vector_basemaps !== initialProject.vector_basemaps ||
+        projectRef.current.input_version !== initialProject.input_version ||
+        projectRef.current.manual_facilities !==
+          initialProject.manual_facilities
+      ) {
+        setStatus("准备期间工程已变更，请重新选择要编辑的路线。", "warn");
+        return;
+      }
+      // 旧参考线即将替换，不转换它；只重投影保留的人工设施。
+      const converted = reprojectProject(
+        { ...projectRef.current, route_points: [] },
+        targetCrs,
+      );
+      selectedRouteDisplay.current = {
+        points,
+        crs: targetCrs,
+        collection: {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: { layer: "参考线" },
+              geometry: { type: "LineString", coordinates: coords },
+            },
+          ],
+        },
+      };
       const attributes = feature.properties ?? {};
       const sourceMapping =
         dataset?.mapping ??
@@ -2359,9 +2561,7 @@ export function App() {
                 part_index: partIndex,
               }
             : undefined,
-        route_points: coords.map((point) =>
-          transformPosition(point, "EPSG:4326", targetCrs),
-        ),
+        route_points: points,
         route_source: label,
         mapped_attributes: attributes,
         source_fields: sourceFields?.length
@@ -2394,7 +2594,17 @@ export function App() {
       const mappingOkay = true;
       setRouteChoices(null);
       setToolMode("pan");
-      fitProject(mapRef.current, projectRef.current);
+      fitBounds(
+        mapRef.current,
+        routeSourceCollection([
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: coords },
+          },
+        ] as RouteFeature[]).bounds,
+        17,
+      );
       if (mappingOkay)
         setStatus(
           Object.keys(validMapping).length < Object.keys(sourceMapping).length
@@ -2769,7 +2979,101 @@ export function App() {
       setStatus("来源级映射已更新；生成时逐行读取各自属性。", "ok");
     }
   }
-  async function generateAllSources() {
+  function locateGenerationIssue(row: GenerationIssueRow) {
+    const dataset = sourceDatasets.find((item) => item.id === row.dataset_id);
+    const feature =
+      dataset?.collection.features[
+        dataset.feature_keys.indexOf(row.feature_key ?? "")
+      ];
+    if (!feature) {
+      setStatus("找不到问题路线，请检查来源数据。", "warn");
+      return;
+    }
+    try {
+      const geometry = feature.geometry;
+      if (
+        !geometry ||
+        !["LineString", "MultiLineString"].includes(geometry.type)
+      )
+        throw new Error("该记录不是线几何，需修正原始数据后重新导入。");
+      const override =
+        dataset?.route_overrides?.[row.feature_key ?? ""]?.parts?.[
+          String(row.part_index ?? 0)
+        ];
+      const coordinates =
+        override ??
+        (geometry?.type === "MultiLineString" && row.part_index !== undefined
+          ? geometry.coordinates[row.part_index]
+          : geometry?.type === "LineString"
+            ? geometry.coordinates
+            : undefined);
+      const located = coordinates
+        ? { ...feature, geometry: { type: "LineString" as const, coordinates } }
+        : feature;
+      // 修复报告使用源点序号；旧文本诊断按对应源段范围定位，不把估算里程当业务桩号。
+      const diagnostic = row as GenerationIssueRow & {
+        source_point_start?: number;
+        source_point_end?: number;
+      };
+      const segments = row.message.match(/source segments (\d+) and (\d+)/);
+      const start =
+        diagnostic.source_point_start ??
+        (segments ? Number(segments[1]) : undefined);
+      const end =
+        diagnostic.source_point_end ??
+        (segments ? Number(segments[2]) + 1 : undefined);
+      if (
+        located.geometry?.type === "LineString" &&
+        Number.isInteger(start) &&
+        Number.isInteger(end) &&
+        start! >= 0 &&
+        end! >= start! &&
+        end! < located.geometry.coordinates.length
+      ) {
+        located.geometry = {
+          ...located.geometry,
+          coordinates: located.geometry.coordinates.slice(start!, end! + 1),
+        };
+      }
+      const bounds = routeSourceCollection([located as RouteFeature]).bounds;
+      if (!bounds || bounds.some((value) => !Number.isFinite(value)))
+        throw new Error("该路线坐标无效，无法定位；请修正原始数据后重新导入。");
+      fitBounds(mapRef.current, bounds);
+      setStatus(`已定位问题路线：${row.routeLabel}。`);
+    } catch (error) {
+      setStatus(errorMessage(error), "error");
+    }
+  }
+
+  async function editGenerationIssue(row: GenerationIssueRow) {
+    if (row.code === "mapping_error" || !row.feature_key) {
+      setMappingDatasetId(row.dataset_id);
+      return;
+    }
+    const dataset = sourceDatasets.find((item) => item.id === row.dataset_id);
+    const feature =
+      dataset?.collection.features[
+        dataset.feature_keys.indexOf(row.feature_key)
+      ];
+    if (dataset && feature) {
+      await selectSourceFeature(
+        feature,
+        dataset.source_label,
+        dataset.binding ?? undefined,
+        dataset.fields,
+        dataset.id,
+        row.part_index,
+        row.feature_key,
+      );
+      if (
+        (projectRef.current.active_source_ref as any)?.feature_key ===
+        row.feature_key
+      )
+        setPanel("road");
+    }
+  }
+
+  async function generateAllSources(retryTargets?: GenerationTarget[]) {
     if (!isTauri()) {
       setStatus("整体生成需要本地桌面引擎。", "warn");
       return;
@@ -2843,20 +3147,34 @@ export function App() {
           false,
         );
         setStatus(
-          `校验未通过：${issues.length} 个问题；${issues[0].message}。请修正或排除对应记录后重试。`,
-          "error",
+          `发现 ${issues.length} 个校验问题；继续处理有效路线，问题记录保留供修正。`,
+          "warn",
         );
-        return;
       }
       if (!tasks.length) {
-        setStatus("没有参与生成的路线；请导入或勾选记录。", "warn");
+        update(
+          (current) => ({ ...current, source_batch_issues: issues }),
+          true,
+        );
+        setStatus(
+          issues.length
+            ? `没有通过校验的路线；请查看“生成问题”中的 ${issues.length} 个原因。`
+            : "没有参与生成的路线；请导入或勾选记录。",
+          "warn",
+        );
         return;
       }
       const reused = reusableResults(
         tasks,
         (input.source_batch_output as any)?.results ?? [],
       );
-      const pending = tasks.filter((task) => !reused.has(task.key));
+      const retryTarget = retryTargets
+        ? generationTargetMatcher(retryTargets)
+        : undefined;
+      const pending = tasks.filter(
+        (task) => !reused.has(task.key) && (!retryTarget || retryTarget(task)),
+      );
+      const runTotal = reused.size + pending.length;
       const chunks = generationChunks(pending);
       const startedAt = performance.now();
       let chunkBase = reused.size;
@@ -2870,7 +3188,7 @@ export function App() {
       );
       setBatchProgress({
         completed: reused.size,
-        total: tasks.length,
+        total: runTotal,
         succeeded: reused.size,
         failed: 0,
       });
@@ -2888,7 +3206,7 @@ export function App() {
         )
           return;
         setBatchProgress({
-          total: tasks.length,
+          total: runTotal,
           completed: chunkBase + event.payload.completed,
           succeeded: succeededBase + event.payload.succeeded,
           failed: failedBase + event.payload.failed,
@@ -2935,15 +3253,42 @@ export function App() {
             const middle = Math.ceil(chunk.length / 2);
             queue.unshift(chunk.slice(0, middle), chunk.slice(middle));
             setBatchProgress({
-              total: tasks.length,
+              total: runTotal,
               completed: chunkBase,
               succeeded: succeededBase,
               failed: failedBase,
             });
             continue;
           }
-          throw error;
+          if (job.cancelled) return;
+          // 进程或传输级故障也记录到受影响部件，避免丢掉已完成的其他批次。
+          output = {
+            total: chunk.length,
+            results: chunk.map((task) => ({
+              key: task.key,
+              dataset_id: task.dataset_id,
+              feature_key: task.feature_key,
+              part_index: task.part_index,
+              input_signature: task.input_signature,
+              source_properties: task.source_properties,
+              error: errorMessage(error),
+            })),
+          };
         }
+        const received = new Map(
+          output.results.map((result) => [result.key, result]),
+        );
+        output.results = chunk.map((task) => {
+          const result = received.get(task.key);
+          const { request: _request, ...identity } = task;
+          return {
+            ...identity,
+            ...(result ?? {}),
+            ...(!result || (!result.response && !result.error)
+              ? { error: "引擎未返回该部件成果，请重试。" }
+              : {}),
+          };
+        });
         completedChunks += 1;
         computed.push(...output.results);
         processesStarted += output.engine_processes_started ?? 0;
@@ -2977,14 +3322,48 @@ export function App() {
       const computedByKey = new Map(
         computed.map((result) => [result.key, result]),
       );
-      const results = tasks.map((task) => {
+      const previousByKey = new Map(
+        (
+          (input.source_batch_output as SourceBatchOutput | undefined)
+            ?.results ?? []
+        ).map((result) => [result.key, result]),
+      );
+      const results = tasks.flatMap((task) => {
+        const previous = previousByKey.get(task.key);
+        const result =
+          reused.get(task.key) ??
+          computedByKey.get(task.key) ??
+          (previous?.input_signature === task.input_signature
+            ? previous
+            : undefined);
+        if (!result) return [];
         const { points, ...request } = task.request;
-        return {
-          ...task,
-          request: { ...request, point_count: points.length },
-          ...(reused.get(task.key) ?? computedByKey.get(task.key)!),
-        };
+        return [
+          {
+            ...task,
+            ...result,
+            request: { ...request, point_count: points.length },
+          },
+        ];
       });
+      const failures = mergeGenerationFailures(
+        (input.source_batch_failures as SourceBatchIssue[] | undefined) ??
+          (
+            (input.source_batch_output as SourceBatchOutput | undefined)
+              ?.results ?? []
+          )
+            .filter((result) => result.error)
+            .map((result) => ({
+              ...result,
+              code: "engine_error",
+              message: result.error!,
+            })),
+        tasks.filter(
+          (task) => reused.has(task.key) || !retryTarget || retryTarget(task),
+        ),
+        [...computed, ...reused.values()],
+        datasets,
+      );
       update(
         (current) => ({
           ...current,
@@ -3003,9 +3382,11 @@ export function App() {
           source_batch_output: makeSourceBatchOutput(results, tasks.length, {
             datasets,
             scene_key: sceneInputKey(input),
-            issues: [],
+            issues,
           }),
-          source_batch_issues: [],
+          source_batch_issues: issues,
+          source_batch_failures: failures,
+          source_batch_job_error: undefined,
           source_batch_metrics: {
             total: tasks.length,
             computed: pending.length,
@@ -3018,13 +3399,31 @@ export function App() {
         true,
       );
       const failed = results.filter((result) => result.error).length;
+      const reviewCount = generationReviewIssues(
+        {
+          results,
+          dataset_revisions: Object.fromEntries(
+            datasets.map((dataset) => [dataset.id, dataset.revision ?? 0]),
+          ),
+        },
+        datasets,
+      ).length;
       setRoadState("ready");
       setStatus(
-        `整体生成完成：成功 ${results.length - failed} / ${results.length} 个线部件，复用 ${reused.size} 个，耗时 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒${failed ? `，失败 ${failed} 个（见参与数据面板）` : "；全部成果已加载地图"}。`,
-        failed ? "warn" : "ok",
+        `${retryTargets ? "失败路线重试" : "整体生成"}完成：有效成果 ${results.length - failed} 个线部件，复用 ${reused.size} 个，本次处理 ${pending.length} 个，耗时 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒${failures.length || issues.length || reviewCount ? `；失败 ${failures.length + issues.length} 个，需复核 ${reviewCount} 个，请查看生成问题` : "；全部成果已加载地图"}。`,
+        failures.length || issues.length || reviewCount ? "warn" : "ok",
       );
     } catch (error) {
-      if (!job.cancelled) setStatus(errorMessage(error), "error");
+      if (!job.cancelled) {
+        update(
+          (current) => ({
+            ...current,
+            source_batch_job_error: errorMessage(error),
+          }),
+          true,
+        );
+        setStatus(errorMessage(error), "error");
+      }
     } finally {
       unlisten?.();
       if (jobRef.current?.id === job.id) {
@@ -3344,6 +3743,7 @@ export function App() {
     setWorking(true);
     setRoadState("changed");
     setStatus("正在生成道路成果…");
+    const generationRouteLabel = projectRef.current.route_id;
     try {
       const input = projectRef.current;
       const request = {
@@ -3373,6 +3773,7 @@ export function App() {
       }
       const generated = {
         ...accepted,
+        current_generation_error: undefined,
         last_generated_input_version: accepted.input_version,
         road_output_cleared: false,
       };
@@ -3383,6 +3784,14 @@ export function App() {
       setStatus("道路几何生成完成 · 结果已绑定当前输入版本", "ok");
     } catch (error) {
       if (!job.cancelled) {
+        update(
+          (current) => ({
+            ...current,
+            current_generation_error: `路线「${generationRouteLabel}」：${errorMessage(error)}`,
+          }),
+          false,
+        );
+        touchDocument();
         setStatus(errorMessage(error), "error");
         setRoadState("error");
       }
@@ -3693,6 +4102,22 @@ export function App() {
     }
   }
 
+  qaEditSource.current = async (id, key) => {
+    const dataset = sourceDatasets.find((item) => item.id === id);
+    const index = dataset
+      ? findSourceFeatureIndex(dataset, {} as any, key)
+      : -1;
+    if (!dataset || index < 0) throw new Error("找不到测试来源记录。");
+    await selectSourceFeature(
+      dataset.collection.features[index],
+      dataset.source_label,
+      dataset.binding ?? undefined,
+      dataset.fields,
+      id,
+      0,
+      key,
+    );
+  };
   const qa = useMemo(
     () => ({
       getProject: () => structuredClone(projectRef.current),
@@ -3705,6 +4130,43 @@ export function App() {
       },
       getMap: () => mapRef.current,
       getDisplayMetrics: () => ({ ...displayMetrics.current }),
+      getMemoryDiagnostics: () => ({
+        history_count: historyRef.current.length,
+        redo_count: redoRef.current.length,
+        history_shared_source_count: historyRef.current.filter(
+          (snapshot) =>
+            snapshot.vector_basemaps === projectRef.current.vector_basemaps,
+        ).length,
+        history_shared_batch_count: historyRef.current.filter(
+          (snapshot) =>
+            snapshot.source_batch_output ===
+            projectRef.current.source_batch_output,
+        ).length,
+        route_points_count: projectRef.current.route_points.length,
+        active_source_ref: projectRef.current.active_source_ref,
+        source_geometry: geometryDiagnostics(
+          ((projectRef.current.vector_basemaps as any[]) ?? [])
+            .filter(
+              (layer) =>
+                layer.kind === "route-source" &&
+                layer.collection?.type === "FeatureCollection",
+            )
+            .map((layer) => layer.collection),
+        ),
+        batch_geometry: geometryDiagnostics(
+          (
+            (
+              projectRef.current.source_batch_output as
+                | SourceBatchOutput
+                | undefined
+            )?.results ?? []
+          ).flatMap((result) => responseGeometryCollections(result.response)),
+        ),
+      }),
+      editSourceFeatureByKey: (id: string, key: string) =>
+        qaEditSource.current(id, key),
+      undo: () => actionsRef.current.undo(),
+      redo: () => actionsRef.current.redo(),
       requestClose: () => getCurrentWindow().close(),
       dialogs: { open: [] as string[], save: [] as string[] },
     }),
@@ -4476,6 +4938,8 @@ export function App() {
                           dataset.binding ?? undefined,
                           dataset.fields,
                           id,
+                          undefined,
+                          key,
                         );
                     }}
                     onConfigureMapping={setMappingDatasetId}
@@ -4496,55 +4960,56 @@ export function App() {
                         }
                     }}
                   />
-                  {((project.source_batch_issues as any[]) ?? []).length >
-                    0 && (
-                    <details className="data-tool-details" open>
-                      <summary>
-                        生成校验问题 ·{" "}
-                        {(project.source_batch_issues as any[]).length}
-                      </summary>
-                      <ul>
-                        {(project.source_batch_issues as any[])
-                          .slice(0, 100)
-                          .map((issue, index) => (
-                            <li key={index}>
-                              {
-                                sourceDatasets.find(
-                                  (item) => item.id === issue.dataset_id,
-                                )?.label
-                              }{" "}
-                              / {issue.feature_key} / 部件{" "}
-                              {(issue.part_index ?? 0) + 1}：{issue.message}
-                            </li>
-                          ))}
-                      </ul>
-                      {(project.source_batch_issues as any[]).length > 100 && (
-                        <p>此处显示前 100 个问题，全部问题随工程保存。</p>
-                      )}
-                    </details>
+                  <GenerationIssuesPanel
+                    rows={generationRows}
+                    working={working}
+                    onRetry={(rows) => void generateAllSources(rows)}
+                    onLocate={locateGenerationIssue}
+                    onEdit={(row) => void editGenerationIssue(row)}
+                    onMapping={(row) => setMappingDatasetId(row.dataset_id)}
+                  />
+                  {typeof project.source_batch_job_error === "string" && (
+                    <section
+                      className="data-tool-details"
+                      aria-label="批量任务错误"
+                    >
+                      <p>任务未完成：{project.source_batch_job_error}</p>
+                      <button
+                        disabled={working}
+                        onClick={() => void generateAllSources()}
+                      >
+                        重新校验并生成
+                      </button>
+                    </section>
                   )}
-                  {(validBatchOutput?.results ?? []).some(
-                    (result) => result.error,
-                  ) && (
-                    <details className="data-tool-details">
-                      <summary>生成失败记录</summary>
-                      <ul>
-                        {validBatchOutput!.results
-                          .filter((result) => result.error)
-                          .slice(0, 100)
-                          .map((result) => (
-                            <li key={result.key}>
-                              {
-                                sourceDatasets.find(
-                                  (item) => item.id === result.dataset_id,
-                                )?.label
-                              }{" "}
-                              / {result.feature_key} / 部件{" "}
-                              {result.part_index + 1}：{result.error}
-                            </li>
-                          ))}
-                      </ul>
-                    </details>
+                  {Boolean(project.current_generation_error) && (
+                    <section
+                      className="data-tool-details"
+                      aria-label="当前路线生成错误"
+                    >
+                      <p>
+                        当前路线生成失败：
+                        {String(project.current_generation_error)}
+                      </p>
+                      <p>
+                        失败不会覆盖既有成果；重试使用当前编辑路线和横断面，请确认当前路线与问题路线一致。
+                      </p>
+                      <button
+                        disabled={working}
+                        onClick={() => {
+                          setPanel("road");
+                          fitProject(mapRef.current, projectRef.current);
+                        }}
+                      >
+                        定位并修改当前路线
+                      </button>
+                      <button
+                        disabled={working}
+                        onClick={() => void generate()}
+                      >
+                        重试当前路线
+                      </button>
+                    </section>
                   )}
                   {Boolean(
                     (project.source_fields as Field[] | undefined)?.length,
@@ -5153,6 +5618,8 @@ export function App() {
                       <strong>{project.route_id || "未命名路线"}</strong>
                       <small>
                         {project.route_points.length} 个控制点 · {project.crs}
+                        <br />左 {project.section.left_lanes.length} 车道 · 右{" "}
+                        {project.section.right_lanes.length} 车道（按路线正向）
                       </small>
                     </span>
                     <button
@@ -6393,6 +6860,17 @@ function ProjectInspector({
           <span>路线控制点</span>
           <strong>{project.route_points.length} 个</strong>
         </div>
+        <div className="inspector-field">
+          <span>车道配置（按路线正向）</span>
+          <strong>
+            左 {project.section.left_lanes.length} · 右{" "}
+            {project.section.right_lanes.length} · 共{" "}
+            {project.section.left_lanes.length +
+              project.section.right_lanes.length}{" "}
+            车道
+          </strong>
+          <small>来自逐记录映射或人工横断面，不由总宽度推断。</small>
+        </div>
       </div>
       <details className="property-group technical-details">
         <summary>工程详情与兼容信息</summary>
@@ -6637,17 +7115,18 @@ function slug(name: string) {
 }
 function fitProject(map: MapLibreMap | null, project: RoadProject) {
   if (!map || !project.route_points.length) return;
-  const coords = project.route_points.map((point) =>
-    transformPosition(point, project.crs, "EPSG:4326"),
+  const first = transformPosition(
+    project.route_points[0],
+    project.crs,
+    "EPSG:4326",
   );
-  if (coords.length === 1) {
-    map.easeTo({ center: coords[0], zoom: Math.max(14, map.getZoom()) });
+  if (project.route_points.length === 1) {
+    map.easeTo({ center: first, zoom: Math.max(14, map.getZoom()) });
     return;
   }
-  const bounds = coords.reduce(
-    (value, point) => value.extend(point as [number, number]),
-    new maplibregl.LngLatBounds(coords[0], coords[0]),
-  );
+  const bounds = new maplibregl.LngLatBounds(first, first);
+  for (const point of project.route_points)
+    bounds.extend(transformPosition(point, project.crs, "EPSG:4326"));
   map.fitBounds(bounds, {
     padding: {
       top: Math.min(112, map.getContainer().clientHeight * 0.16),
@@ -6659,14 +7138,22 @@ function fitProject(map: MapLibreMap | null, project: RoadProject) {
     duration: 450,
   });
 }
-function fitBounds(map: MapLibreMap | null, bounds: number[]) {
+function fitBounds(
+  map: MapLibreMap | null,
+  bounds: number[],
+  maxZoom?: number,
+) {
   if (!map || bounds.length !== 4 || !bounds.every(Number.isFinite)) return;
   map.fitBounds(
     [
       [bounds[0], bounds[1]],
       [bounds[2], bounds[3]],
     ],
-    { padding: 80, duration: 500 },
+    {
+      padding: 80,
+      duration: 500,
+      ...(maxZoom === undefined ? {} : { maxZoom }),
+    },
   );
 }
 function transformCollection(
@@ -6743,6 +7230,7 @@ function reprojectProject(
   project: RoadProject,
   targetCrs: string,
 ): RoadProject {
+  if (project.crs === targetCrs) return project;
   const transform = (point: Position): Position =>
     transformPosition(point, project.crs, targetCrs);
   return {

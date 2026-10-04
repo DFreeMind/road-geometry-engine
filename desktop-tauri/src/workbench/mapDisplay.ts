@@ -23,6 +23,11 @@ const DISPLAY_PROPERTY_KEYS = [
   "component",
   "side",
   "lane_index",
+  "marking_class",
+  "left_lane_count",
+  "right_lane_count",
+  "lane_count",
+  "lane_width_m",
   "source_dataset_id",
   "source_feature_key",
   "part_index",
@@ -30,6 +35,12 @@ const DISPLAY_PROPERTY_KEYS = [
 ] as const;
 
 type CoordinatePosition = number[];
+
+export type OutputDisplayChunk = {
+  layer: OutputDisplayLayer;
+  layer_index: number;
+  feature_start: number;
+};
 
 function registerWgs84UtmDefinitionIfNeeded(crs: string): void {
   const match = /^EPSG:(326|327)(\d{2})$/i.exec(crs);
@@ -181,5 +192,43 @@ export function prepareOutputDisplay(
       coordinate_count: coordinateCounter.coordinate_count,
       source_layer_count: layers.length,
     },
+  };
+}
+
+/** 为分块显示复用坐标转换器；每次只保留当前块的输入和显示结果。 */
+export function createOutputDisplayChunkProcessor(): (
+  chunk: OutputDisplayChunk,
+) => OutputDisplay {
+  const converters = new Map<string, Converter>();
+  return ({ layer, layer_index, feature_start }) => {
+    const features: GeoJSON.Feature[] = [];
+    const coordinateCounter = { coordinate_count: 0 };
+    layer.collection.features.forEach((feature, index) => {
+      if (!feature.geometry) return;
+      features.push({
+        type: "Feature",
+        ...(feature.id === undefined ? {} : { id: feature.id }),
+        properties: displayProperties(
+          feature.properties,
+          layer_index,
+          feature_start + index,
+        ),
+        geometry: transformGeometry(
+          feature.geometry,
+          layer.crs,
+          coordinateCounter,
+          converters,
+        ),
+      });
+    });
+
+    return {
+      collection: { type: "FeatureCollection", features },
+      metrics: {
+        feature_count: features.length,
+        coordinate_count: coordinateCounter.coordinate_count,
+        source_layer_count: 1,
+      },
+    };
   };
 }

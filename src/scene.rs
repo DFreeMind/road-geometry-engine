@@ -1,4 +1,7 @@
-use crate::{distance, offset_line, Coord, Section};
+use crate::{
+    distance, offset_line_with_local_repair, offset_repair_warning, offset_round_join_warning,
+    Coord, Section,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -42,6 +45,12 @@ struct SceneContext<'a> {
     offset_m: f64,
 }
 
+#[derive(Clone)]
+struct SceneOffsetLine {
+    coordinates: Vec<[f64; 2]>,
+    stations: Vec<f64>,
+}
+
 pub(crate) fn build_ancillary_layers(
     route_id: &str,
     route: &[Coord],
@@ -49,7 +58,7 @@ pub(crate) fn build_ancillary_layers(
     options: &SceneOptions,
     source: &str,
     crs: &str,
-) -> Result<Vec<Value>, String> {
+) -> Result<(Vec<Value>, Vec<Value>), String> {
     if route.len() < 2 {
         return Err("scene route must contain at least two coordinates".into());
     }
@@ -70,7 +79,7 @@ pub(crate) fn build_ancillary_layers(
     enabled.sort();
     enabled.dedup();
     if enabled.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     if !options.spacing_m.is_finite() || !(0.1..=MAX_SCENE_SPACING_M).contains(&options.spacing_m) {
         return Err(format!(
@@ -153,12 +162,35 @@ pub(crate) fn build_ancillary_layers(
     };
 
     // 预先计算所有需要的偏移线，任何一条失败都拒绝整组结果。
-    let mut offsets: Vec<(f64, Vec<[f64; 2]>)> = Vec::new();
-    let mut get_offset = |value: f64| -> Result<Vec<[f64; 2]>, String> {
+    let mut offsets: Vec<(f64, SceneOffsetLine)> = Vec::new();
+    let mut geometry_warnings = Vec::new();
+    let mut get_offset = |value: f64| -> Result<SceneOffsetLine, String> {
         if let Some((_, line)) = offsets.iter().find(|(offset, _)| *offset == value) {
             return Ok(line.clone());
         }
-        let line = offset_line(route, value)?;
+        let (line, repair) = offset_line_with_local_repair(route, value, &cumulative)?;
+        if line.rounded_join_count > 0 {
+            geometry_warnings.push(offset_round_join_warning(value, line.rounded_join_count));
+        }
+        let mut coordinates = line.coordinates;
+        let mut stations = line.stations;
+        if let Some(repair) = repair {
+            geometry_warnings.push(offset_repair_warning(value, repair));
+            let station_anchor = repair.crossing_index + 1;
+            if station_anchor > coordinates.len() || station_anchor > stations.len() {
+                return Err("offset repair station anchor is outside the mapped line".into());
+            }
+            // 同一交点对应被修剪区间的起止里程，保留两份坐标供设施按里程插值。
+            coordinates.insert(station_anchor, repair.crossing);
+            stations.insert(station_anchor, repair.station_end_m);
+        }
+        if coordinates.len() != stations.len() {
+            return Err("offset line coordinates do not match the station mapping".into());
+        }
+        let line = SceneOffsetLine {
+            coordinates,
+            stations,
+        };
         offsets.push((value, line.clone()));
         Ok(line)
     };
@@ -209,23 +241,23 @@ pub(crate) fn build_ancillary_layers(
                 }
                 for (side, offset, marking_class) in lines {
                     let line = get_offset(offset)?;
-                    ensure_line(&line, "markings", offset)?;
+                    ensure_line(&line.coordinates, "markings", offset)?;
                     features.push(line_feature(
                         &context,
                         kind,
                         &side,
-                        &line,
+                        &line.coordinates,
                         offset,
                         marking_class,
                     ));
                 }
                 let left = if widths.left > 0.0 {
-                    get_offset(widths.left)?
+                    get_offset(widths.left)?.coordinates
                 } else {
                     route.iter().map(|point| [point.x, point.y]).collect()
                 };
                 let right = if widths.right > 0.0 {
-                    get_offset(-widths.right)?
+                    get_offset(-widths.right)?.coordinates
                 } else {
                     route.iter().map(|point| [point.x, point.y]).collect()
                 };
@@ -245,8 +277,15 @@ pub(crate) fn build_ancillary_layers(
                 for side in &sides {
                     let offset = side_sign(side) * (side_width(widths, side) + options.offset_m);
                     let line = get_offset(offset)?;
-                    ensure_line(&line, kind, offset)?;
-                    features.push(line_feature(&context, kind, side, &line, offset, ""));
+                    ensure_line(&line.coordinates, kind, offset)?;
+                    features.push(line_feature(
+                        &context,
+                        kind,
+                        side,
+                        &line.coordinates,
+                        offset,
+                        "",
+                    ));
                 }
             }
             _ => {
@@ -254,7 +293,7 @@ pub(crate) fn build_ancillary_layers(
                     let reference_offset =
                         side_sign(side) * (side_width(widths, side) + options.offset_m);
                     let line = get_offset(reference_offset)?;
-                    ensure_line(&line, kind, reference_offset)?;
+                    ensure_line(&line.coordinates, kind, reference_offset)?;
                     let mut previous_station = -1.0;
                     for index in 0..station_count {
                         let station = (index as f64 * options.spacing_m).min(route_length);
@@ -264,7 +303,7 @@ pub(crate) fn build_ancillary_layers(
                             );
                         }
                         previous_station = station;
-                        let point = offset_point_at_station(route, &line, &cumulative, station)?;
+                        let point = offset_point_at_station(&line, station)?;
                         features.push(point_feature(
                             &context,
                             kind,
@@ -289,7 +328,7 @@ pub(crate) fn build_ancillary_layers(
             }
         }));
     }
-    Ok(layers)
+    Ok((layers, geometry_warnings))
 }
 
 fn section_widths(section: &Section) -> Result<Widths, String> {
@@ -342,25 +381,26 @@ fn side_sign(side: &str) -> f64 {
     }
 }
 
-fn offset_point_at_station(
-    route: &[Coord],
-    offset: &[[f64; 2]],
-    cumulative: &[f64],
-    station: f64,
-) -> Result<[f64; 2], String> {
-    if route.len() != offset.len() || route.len() != cumulative.len() {
-        return Err("offset line does not correspond to route vertices".into());
+fn offset_point_at_station(offset: &SceneOffsetLine, station: f64) -> Result<[f64; 2], String> {
+    if offset.coordinates.len() != offset.stations.len() || offset.coordinates.len() < 2 {
+        return Err("offset line does not correspond to its station mapping".into());
     }
-    let end_index = cumulative.partition_point(|distance| *distance < station);
-    let index = end_index.saturating_sub(1).min(route.len() - 2);
-    let segment_length = cumulative[index + 1] - cumulative[index];
-    if !segment_length.is_finite() || segment_length <= EPS {
-        return Err(format!("route contains a zero-length segment at {index}"));
+    let end_index = offset
+        .stations
+        .partition_point(|distance| *distance < station);
+    let index = end_index.saturating_sub(1).min(offset.stations.len() - 2);
+    let station_length = offset.stations[index + 1] - offset.stations[index];
+    if !station_length.is_finite() || station_length <= 0.0 {
+        return Err(format!(
+            "offset station mapping is invalid at index {index}"
+        ));
     }
-    let fraction = ((station - cumulative[index]) / segment_length).clamp(0.0, 1.0);
+    let fraction = ((station - offset.stations[index]) / station_length).clamp(0.0, 1.0);
     let point = [
-        offset[index][0] + (offset[index + 1][0] - offset[index][0]) * fraction,
-        offset[index][1] + (offset[index + 1][1] - offset[index][1]) * fraction,
+        offset.coordinates[index][0]
+            + (offset.coordinates[index + 1][0] - offset.coordinates[index][0]) * fraction,
+        offset.coordinates[index][1]
+            + (offset.coordinates[index + 1][1] - offset.coordinates[index][1]) * fraction,
     ];
     if point.iter().all(|value| value.is_finite()) {
         Ok(point)
@@ -405,7 +445,8 @@ fn base_properties(
         "route_source": context.source,
         "confirmed": false,
         "symbol_is_schematic": kind != "markings",
-        "rule_version": "road-scene-1",
+        "rule_version": "road-scene-2",
+        "geometry_rule_version": crate::OFFSET_GEOMETRY_RULE_VERSION,
     })
 }
 
@@ -508,7 +549,8 @@ mod tests {
         }
     }
 
-    fn features(layers: &[Value], name: &str) -> Vec<Value> {
+    fn features(result: &(Vec<Value>, Vec<Value>), name: &str) -> Vec<Value> {
+        let layers = &result.0;
         layers.iter().find(|layer| layer["name"] == name).unwrap()["collection"]["features"]
             .as_array()
             .unwrap()
@@ -526,7 +568,7 @@ mod tests {
             "EPSG:32650",
         )
         .unwrap();
-        assert!(layers.is_empty());
+        assert!(layers.0.is_empty());
     }
 
     #[test]
@@ -550,6 +592,40 @@ mod tests {
         assert!(points
             .iter()
             .all(|feature| feature["properties"]["surface_type"] == "asphalt"));
+    }
+
+    #[test]
+    fn rounded_outer_join_keeps_facility_station_mapping_aligned() {
+        let route = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 0.2, y: 1.7 },
+        ];
+        let mut config = options(&["lighting"]);
+        config.side = "right".into();
+        config.spacing_m = 5.0;
+        config.offset_m = 0.0;
+        let layers =
+            build_ancillary_layers("R1", &route, &section(), &config, "survey", "EPSG:32650")
+                .unwrap();
+        let points = features(&layers, "路灯");
+        assert_eq!(points.len(), 5);
+        let turn_point = points
+            .iter()
+            .find(|feature| feature["properties"]["station_m"] == 10.0)
+            .unwrap();
+        let coordinate: [f64; 2] =
+            serde_json::from_value(turn_point["geometry"]["coordinates"].clone()).unwrap();
+        let radius =
+            ((coordinate[0] - route[1].x).powi(2) + (coordinate[1] - route[1].y).powi(2)).sqrt();
+        assert!((radius - 5.0).abs() < 1.0e-8);
+        assert!(points
+            .iter()
+            .all(|feature| feature["geometry"]["coordinates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|coordinate| coordinate.as_f64().unwrap().is_finite())));
     }
 
     #[test]
@@ -609,6 +685,11 @@ mod tests {
             .unwrap();
         assert_eq!(left_outer["properties"]["reference_offset_m"], 9.5);
         assert_eq!(left_outer["properties"]["component"], "markings");
+        assert_eq!(left_outer["properties"]["rule_version"], "road-scene-2");
+        assert_eq!(
+            left_outer["properties"]["geometry_rule_version"],
+            crate::OFFSET_GEOMETRY_RULE_VERSION
+        );
     }
 
     #[test]
@@ -659,6 +740,66 @@ mod tests {
         assert!(
             build_ancillary_layers("R1", &u_turn, &section(), &config, "survey", "EPSG:32650")
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn scene_layers_reuse_local_loop_repair_and_keep_stationed_features() {
+        let route = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord {
+                x: 4.077_453_484_467_959,
+                y: -3.172_788_586_179_792_4,
+            },
+            Coord {
+                x: 8.215_786_976_331_81,
+                y: -10.938_921_486_947_251,
+            },
+            Coord {
+                x: 15.367_065_973_220_019,
+                y: -14.165_903_044_387_537,
+            },
+            Coord {
+                x: 22.722_830_146_639_048,
+                y: -8.302_218_164_735_702,
+            },
+            Coord {
+                x: 24.575_363_367_742_56,
+                y: -9.235_636_653_429_756,
+            },
+            Coord {
+                x: 27.785_655_769_055_52,
+                y: -13.269_810_194_861_883,
+            },
+        ];
+        let mut section = section();
+        section.left_lanes = vec![9.763_136_114_814_849];
+        section.right_lanes = vec![1.0];
+        section.median_width = 0.0;
+        section.left_emergency_width = 0.0;
+        section.right_emergency_width = 0.0;
+        section.left_shoulder_width = 0.0;
+        section.right_shoulder_width = 0.0;
+        section.left_slope_width = 0.0;
+        section.right_slope_width = 0.0;
+        let mut config = options(&["markings", "guardrail", "lighting"]);
+        config.offset_m = 0.0;
+
+        let result =
+            build_ancillary_layers("R1", &route, &section, &config, "survey", "EPSG:32650")
+                .unwrap();
+        assert!(!features(&result, "道路标线").is_empty());
+        assert_eq!(features(&result, "护栏").len(), 2);
+        let lighting = features(&result, "路灯");
+        assert_eq!(lighting.len(), 4);
+        assert!(lighting.iter().all(|feature| {
+            feature["geometry"]["coordinates"][0].is_number()
+                && feature["geometry"]["coordinates"][1].is_number()
+        }));
+        assert_eq!(result.1.len(), 1);
+        assert_eq!(
+            result.1[0]["rule_version"],
+            crate::OFFSET_GEOMETRY_RULE_VERSION
         );
     }
 }

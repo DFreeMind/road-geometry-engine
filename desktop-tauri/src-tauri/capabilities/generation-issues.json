@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "generation-issues-window",
+  "description": "独立生成问题窗口仅接收主窗口摘要事件",
+  "windows": ["generation-issues"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

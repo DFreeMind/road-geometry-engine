@@ -1,6 +1,7 @@
 mod batch;
 mod credentials;
 mod engine;
+mod generation_issues;
 mod gis;
 mod project;
 
@@ -12,7 +13,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(engine::EngineState::default())
         .manage(gis::GisState::default())
+        .manage(generation_issues::GenerationIssuesState::default())
         .invoke_handler(tauri::generate_handler![
+            generation_issues::open_generation_issues_window,
+            generation_issues::sync_generation_issues_window,
+            generation_issues::get_generation_issues_snapshot,
+            generation_issues::submit_generation_issue_action,
+            generation_issues::minimize_generation_issues_window,
+            generation_issues::start_dragging_generation_issues_window,
+            generation_issues::close_generation_issues_window,
             generate_road,
             generate_roads_batch,
             cancel_generation,

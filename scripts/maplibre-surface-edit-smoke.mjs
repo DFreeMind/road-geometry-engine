@@ -600,6 +600,19 @@ try {
     result_count: reopened.source_batch_output.results.length,
   });
 
+  // 验证真实 Rust 标线经过显示分块后仍保留分类、车道数量和虚实线样式。
+  const markedOptions = { ...sceneOptions, enabled: ['markings'] };
+  const markedResponse = await invoke('generate_road', { request: { ...request, scene_options: markedOptions }, jobId: `lane-markings-probe-${Date.now()}` });
+  assert.equal(markedResponse.left_lane_count, section.left_lanes.length);
+  assert.equal(markedResponse.right_lane_count, section.right_lanes.length);
+  await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify({ ...reopened, route_id: request.route_id, route_points: routePoints, crs: metricCrs, section, active_source_ref: undefined, surface_component_exclusions: [], scene_options: markedOptions, output: { input_version: reopened.input_version, response: markedResponse } })})`);
+  await waitFor(`(()=>{const map=window.__ROAD_WORKBENCH__.getMap();return Object.entries(map.getStyle().sources).filter(([id])=>id.startsWith('output-')).some(([,source])=>source.data?.features?.some(feature=>feature.properties?.marking_class==='lane'));})()`);
+  const markingStyle = await evaluate(`(()=>{const map=window.__ROAD_WORKBENCH__.getMap();const style=map.getStyle();return {dashed:style.layers.find(layer=>layer.id.endsWith('-markings-dashed')),solid:style.layers.find(layer=>layer.id.endsWith('-markings-solid')),lane: Object.entries(style.sources).filter(([id])=>id.startsWith('output-')).flatMap(([,source])=>source.data?.features??[]).find(feature=>feature.properties?.component==='lane')?.properties};})()`);
+  assert.deepEqual(markingStyle.dashed.paint['line-dasharray'], [3, 2]);
+  assert.equal(markingStyle.solid.paint['line-dasharray'], undefined);
+  assert.equal(markingStyle.lane.left_lane_count, section.left_lanes.length);
+  assert.equal(markingStyle.lane.right_lane_count, section.right_lanes.length);
+  check('真实标线保留车道分类和数量，地图区分虚线与实线', { left: markedResponse.left_lane_count, right: markedResponse.right_lane_count });
   assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
   await fs.writeFile(path.join(outputDirectory, 'report.json'), JSON.stringify({ passed: true, checks: checkList, browserErrors }, null, 2));
   console.log(JSON.stringify({ passed: true, checks: checkList.length, outputDirectory }));
