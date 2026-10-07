@@ -80,7 +80,7 @@ $files = @($copied | Sort-Object | ForEach-Object {
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $gisPath 'runtime-manifest.json') -Encoding utf8
 $assetPath = Join-Path $clientPath 'public\assets'
 New-Item -ItemType Directory -Path $assetPath -Force | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $workspacePath 'desktop\assets') | Copy-Item -Destination $assetPath -Recurse -Force
+Get-ChildItem -LiteralPath (Join-Path $workspacePath 'tools\facility-assets\assets') | Copy-Item -Destination $assetPath -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $workspacePath 'fixtures\example-request.json') -Destination (Join-Path $clientPath 'public\demo-request.json') -Force
 Copy-Item -LiteralPath (Join-Path $clientPath 'public\catalog.json') -Destination (Join-Path $resourcePath 'catalog.json') -Force
 if (-not $SkipEngine) {

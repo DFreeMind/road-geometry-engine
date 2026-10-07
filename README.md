@@ -1,76 +1,57 @@
 # 路境 · 道路几何工作台
 
-客户端采用 **Tauri 2 + React/TypeScript + MapLibre GL JS + Rust**。MapLibre 显示 WGS84 地理副本，项目与道路生成保留投影米制坐标；原有 Rust 几何引擎继续使用，GDAL/PROJ 适配本地矢量、影像与 GeoPackage。
+客户端采用 **Tauri 2 + React/TypeScript + MapLibre GL JS + Rust**。Windows 使用 WebView2；只维护一个客户端和一个 Rust 道路业务引擎。计算使用投影米制坐标，地图显示和地理 GeoJSON 使用 WGS84，GeoPackage 导出保留工程 CRS。
 
-## 启动
+## 启动与构建
 
-Windows 下双击 `start.cmd`，或执行：
+Windows 双击 `start.cmd`，或从仓库根目录执行：
 
 ```powershell
 .\launch.ps1
 ```
 
-默认启动新的 MapLibre 工作台。首次开发构建需要 Rust stable/MSVC、C++ Build Tools、Node.js 22.12+、pnpm 11，以及包含 GDAL 命令行和 PROJ 数据的构建来源。构建脚本可从已安装 QGIS 中提取 GDAL 运行资源；**构建后的程序不调用 QGIS、Qt 或 Python**，Windows 仍需 WebView2。当前默认构建调试版本；正式优化构建用 `-Release`。
+入口启动已有调试部署。首次开发构建需要 Rust stable/MSVC、C++ Build Tools、Node.js 22.12+、pnpm 11，以及可用的 GDAL/PROJ 构建来源：
 
 ```powershell
 .\scripts\build-maplibre.ps1 -GisRoot 'C:\Program Files\QGIS 3.44.8'
-.\launch.ps1 -Foreground
-# 优化构建
-.\scripts\build-maplibre.ps1 -Release
+# 优化构建与启动
+.\scripts\build-maplibre.ps1 -GisRoot 'C:\Program Files\QGIS 3.44.8' -Release
 .\launch.ps1 -Release
 ```
 
-程序及资源位于 `artifacts/maplibre-desktop/debug/build-时间戳/` 或 `release/build-时间戳/`，`current-build.txt` 指向最近完成的构建。构建不会覆盖正在运行的版本；启动脚本使用已构建版本，修改客户端后需重新运行构建脚本并重新打开程序。
-
-旧 Qt/PyQGIS 客户端保留为迁移期参考：
-
-```powershell
-.\launch.ps1 -LegacyQgis
-```
-
-旧版完整使用说明见 [旧 QGIS 客户端](docs/legacy-qgis-client.md)。新旧客户端共用同一个 Rust 引擎。当前客户端的部件宽度修改、成果删除恢复及设施符号倍率见 [路面成果编辑与设施显示](docs/generated-surface-editing.md)。
+当前准备脚本可从已安装 QGIS 提取 GDAL 工具与数据；生产程序不调用 QGIS、Qt 或 Python。程序与运行资源位于 `artifacts/maplibre-desktop/debug/` 或 `release/` 下的独立构建目录，`current-build.txt` 指向当前部署。修改代码后需重新构建并重新打开程序。删除整个 `artifacts` 会删除当前可运行程序，下一次启动需要重新构建。
 
 ## 工作台
 
-- 标准菜单提供文件、编辑、数据、道路、视图和帮助命令；常用操作保留工具栏与快捷键。
-- 中间画布使用 MapLibre WebGL，浮层提供绘制、顶点编辑、适配范围、底图、图例和倾斜视图；下部状态栏集中显示当前工具、坐标、比例及任务状态。
-- 导入本地 GeoJSON/SHP/GeoPackage，选择路线，或人工绘制参考线；左右可独立设置逐车道宽度、中央隔离带、应急车道、路肩和边坡水平投影。
-- 生成在后台调用 Rust 进程，可取消；修改路线或横断面会使旧成果失效，迟到任务不会覆盖新输入。
-- 地图左下角固定底图入口，支持高德街道/卫星、Esri、NASA、OSM，以及自定义 XYZ/WMS；高德采用 GCJ-02 到 WGS84 的近似瓦片纠偏，工程计算坐标不变，在线来源只在用户选择后请求。令牌仅用于当前会话。
-- 支持 WFS/PostGIS 连接、路线与横断面字段映射、本地文件多图层选择和图层内多路线选择；当前每次读取最多 2,000 个要素快照，真实远程服务仍需环境验收。
-- 本地定位影像按视口生成 256 像素瓦片，使用有界缓存；无配准图片须先配准。默认无在线底图，不依赖地图账户、令牌或 CDN。
-- 沿线自动布设支持护栏、轮廓标、照明、标志、里程牌和道路标线，间距与偏移按米制参考线计算；先应用再保存或导出，独立于手动设施。最多 10,000 个示意成果，偏移失败会拒绝生成。
-- 设施目录包含 12 类、66 个基础子类型；点、线、区域设施保存模板快照，允许编辑、删除和撤销。人工位置与推定规格需要独立核验。
-- 保存/恢复项目，导出 WGS84 GeoJSON 或带工程 CRS 的 GeoPackage。手动设施独立于道路生成结果，重新生成不覆盖人工编辑。
-- 保存状态与道路生成状态分别显示；打开另一项目或关闭窗口时，未保存编辑可选择保存、放弃或取消。`Ctrl+S` 保存，`Ctrl+Z` 撤销，`Ctrl+Y` / `Ctrl+Shift+Z` 重做，`Esc` 取消输入草稿或退出绘制。
-- 两侧面板可折叠、拖动调整宽度，设置在本机保留；地图图例和路线摘要可展开。横断面按真实宽度比例预览，左右分别编辑，也可复制或同步。
-- 设施模板库与已放置实例分开；模板支持复制、新建和编辑，模板修改不覆盖实例快照。规格使用中文字段、单位和类型校验，编码保留前导零，额外字段在高级区保留并编辑。
-- 数值输入在确认或失焦后提交，空值和越界值就地提示；坐标显示精度不改变保存精度。技术版本和 CRS 说明收在详情中。
+- 导入本地矢量或连接来源、分页选择路线，保留完整字段及多部件几何；也可人工绘制和编辑参考线。
+- 左右独立配置逐车道宽度、中央隔离带、应急车道、路肩及边坡水平投影；支持字段映射和来源默认断面。
+- 单路线或已加载的参与路线分块生成，提供进度、取消、输入版本校验和可定位的生成问题。
+- 道路部件宽度与顶点编辑、删除恢复、撤销重做；人工设施独立于道路重生成。
+- 12 类、66 个基础设施子类型，模板与实例快照分开；支持人工布设及基础沿线参数化示意布设。
+- MapLibre 底图和图层管理，本地定位影像按视口生成瓦片并使用有界缓存；在线服务按用户选择请求。
+- schema 2 JSON 工程保存恢复、schema 1 兼容、WGS84 GeoJSON 和工程 CRS GeoPackage 导出；未保存编辑提供保存、放弃和取消。
 
-项目 schema 2 保留 schema 1 的原字段。本轮已恢复基础沿线自动布设、完整字段映射和国内底图显示适配；专业规范规则、配准和真实三维仍须单独建设。迁移入口与验证范围见 [原版功能对照](docs/ui-migration-checklist.md)。公开在线瓦片需要遵守服务使用和缓存条件；自定义 XYZ 须明确坐标关系，不能把 GCJ-02/BD-09 瓦片直接当作 WGS84 工程背景。
+分页传输大小不是总量上限，支持分页的来源可续读到末页；有界快照来源明确提示未完整状态。每条路线仍采用固定横断面，区间变宽、断链、复杂路口、真实三维、影像配准和 AI 提取尚待完善。矢量及成果仍驻留工程和地图内存中，自动回归不能证明百万复杂面或超大影像的生产性能。完整范围见 [工作台能力](docs/workbench-capabilities.md)。
 
-## 验证与架构
+## 代码组织
+
+| 目录 | 职责 |
+| --- | --- |
+| `src/` | 唯一 Rust 道路几何引擎与沿线规则 |
+| `desktop-service/` | 共享 Rust 业务服务：GIS、生成调度、工程与凭据 |
+| `desktop-tauri/` | React/TypeScript 工作台和 Tauri Rust 适配 |
+| `tools/facility-assets/` | 无界面的设施目录、符号工具及 SVG 源资源 |
+| `scripts/`、`tests/`、`fixtures/` | 构建、验证及合成样本 |
+| `docs/` | 当前说明、专题规则和有日期的验收证据 |
+
+## 验证与文档
 
 ```powershell
-cargo fmt --check
-cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
-cd desktop-tauri
-pnpm test
-pnpm build
-cargo test --manifest-path src-tauri/Cargo.toml --locked
-cd ..
-.\launch.ps1 -SmokeTest
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1
+# 另加已有 Tauri 部署的自动桌面回归
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1 -DesktopSmoke
 ```
 
-Native smoke 在独立 WebView2 配置目录中检查 Tauri 命令、生成、项目与矢量影像读写、导出，以及保存保护、数值草稿、编码、撤销重做、模板快照、横断面同步和小窗口布局，保存报告及截图。验证不关闭用户原有窗口。旧 QGIS 验证脚本仍供参考客户端运行。迁移说明与实际验证范围见 [MapLibre 重构](docs/maplibre-refactor.md)，原生适配见 [GIS 适配器](docs/maplibre-gis-adapter.md)，依赖分发说明见 [原生依赖](docs/maplibre-native-runtime.md)。
+基础验证覆盖三套 Rust 工程的格式、测试、Clippy，以及前端格式、测试和生产构建。桌面回归使用独立 WebView2 配置，不关闭用户已有窗口；若运行逻辑改变，先构建再验证。API 调用及程序化状态检查不替代全量人工界面验收。
 
-```text
-Tauri / React 工作台 ─ MapLibre 地图显示与编辑草图
-       │ 类型化本地命令 / 输入版本
-       ├─ Rust 桌面后端：任务、取消、项目事务
-       ├─ 原有 Rust 核心：横断面 → 米制道路面
-       └─ GDAL / PROJ：矢量、分块影像、GeoPackage
-```
-
-现阶段处理单条路线、固定或左右不对称的横断面，每次最多 2,000 个顶点。倾斜视图不代表工程三维：真实地形、桥隧高程、坡面、点云/3D Tiles 仍需单独建设。AI 道路提取、复杂路口、沿线变宽与断链尚未实现；小样本交互测试不能证明 100 GB 影像或百万路网的生产性能。
+开发与部署见 [开发指南](docs/development.md)，模块和坐标边界见 [架构](docs/architecture.md)，完整专题入口见 [文档导航](docs/README.md)。Qt 与旧 PyQGIS 客户端已删除，路线恢复及当轮验证记录见 [技术路线记录](docs/tauri-route-restoration-20261007.md)。

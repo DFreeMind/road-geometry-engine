@@ -1,0 +1,14 @@
+[package]
+name = "road-geometry-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+tempfile = "3"
+dunce = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "4.2.0", default-features = false, features = ["v1", "windows-native-keyring-store"] }

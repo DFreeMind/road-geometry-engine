@@ -1,6 +1,5 @@
 ﻿param(
-    [switch]$LegacyQgis,
-    [string]$QgisRoot,
+    [Alias("QgisRoot")][string]$GisRoot,
     [switch]$Release,
     [switch]$Debug,
     [switch]$Foreground,
@@ -9,15 +8,11 @@
 )
 $ErrorActionPreference = 'Stop'
 if ($Release -and $Debug) { throw '请选择 -Release 或 -Debug。' }
-if ($LegacyQgis) {
-    & (Join-Path $PSScriptRoot 'scripts\launch-qgis.ps1') -QgisRoot $QgisRoot -Release:$Release -Debug:$Debug -Foreground:$Foreground -SmokeTest:$SmokeTest -OutputDir $OutputDir
-    exit
-}
 $profileName = if ($Release) { 'release' } else { 'debug' }
 . (Join-Path $PSScriptRoot 'scripts\maplibre-node-env.ps1')
 $appPath = Get-MapLibreDesktopPath -WorkspacePath $PSScriptRoot -ProfileName $profileName
 if (-not (Test-Path -LiteralPath $appPath)) {
-    & (Join-Path $PSScriptRoot 'scripts\build-maplibre.ps1') -GisRoot $QgisRoot -Release:$Release
+    & (Join-Path $PSScriptRoot 'scripts\build-maplibre.ps1') -GisRoot $GisRoot -Release:$Release
     $appPath = Get-MapLibreDesktopPath -WorkspacePath $PSScriptRoot -ProfileName $profileName
 }
 if ($SmokeTest) {

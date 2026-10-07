@@ -62,9 +62,9 @@
 
 ## 对当前模板的改进建议
 
-当前目录位于[`desktop/facility_catalog.py`](../desktop/facility_catalog.py#L13)：它已明确说明分类不是全国设施总数，基础模板规格待填且不代表完成工程设计，这个边界应保留。目录为标志设置`sign_code`、面板宽高、支撑类型，为标线、防护设施设置一些规格字段；但缺少路线侧别、里程/方向、适用车道、安装角度、净空依据、设计速度/道路等级、风险场景、来源条款及核查状态等决定布设的输入。
+当前目录位于[`tools/facility-assets/facility_catalog.py`](../tools/facility-assets/facility_catalog.py#L13)：它已明确说明分类不是全国设施总数，基础模板规格待填且不代表完成工程设计，这个边界应保留。目录为标志设置`sign_code`、面板宽高、支撑类型，为标线、防护设施设置一些规格字段；但缺少路线侧别、里程/方向、适用车道、安装角度、净空依据、设计速度/道路等级、风险场景、来源条款及核查状态等决定布设的输入。
 
-当前[`desktop/facility_support.py`](../desktop/facility_support.py#L21)已有少量具体牌面的矢量图和类别占位图；`_CATEGORY_PANELS`的警告符号明确只是类别示意。支撑SVG中的`gantry`、`double_post`是图标形状，比例不表达工程尺寸；`support_defaults()`在无配置时回退到单柱示意默认。因此建议：
+当前[`tools/facility-assets/facility_support.py`](../tools/facility-assets/facility_support.py#L21)已有少量具体牌面的矢量图和类别占位图；`_CATEGORY_PANELS`的警告符号明确只是类别示意。支撑SVG中的`gantry`、`double_post`是图标形状，比例不表达工程尺寸；`support_defaults()`在无配置时回退到单柱示意默认。因此建议：
 
 - UI把缺省“单柱示意”显示为未确认的预览状态，导出属性仍为空；避免把示意默认当成设计决定。
 - 以标准编号/标准图版本关联面板图形；扩展具体警告标志代码，类别文字、图形和尺寸分别受校核，不用“注意危险”一个牌覆盖所有告警。

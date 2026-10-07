@@ -5,12 +5,12 @@ import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "desktop"))
+sys.path.insert(0, str(ROOT / "tools" / "facility-assets"))
 from facility_icons import ICONS
 from facility_catalog import FAMILIES
 from facility_support import SUPPORT_TYPES, SUPPORTED_PANELS, render_sign_support_svg
 
-folder = ROOT / "desktop" / "assets" / "catalog"
+folder = ROOT / "tools" / "facility-assets" / "assets" / "catalog"
 folder.mkdir(parents=True, exist_ok=True)
 colors = ["#64748b", "#475569", "#334155", "#1d4ed8", "#80552b", "#ea7b18", "#475569", "#0284c7", "#6d28d9", "#0e7490", "#1d4ed8", "#15803d"]
 for group, category in enumerate(FAMILIES):
@@ -45,7 +45,7 @@ for support_type in SUPPORT_TYPES:
     (folder / f"support-guide-green-{support_type}.svg").write_text(svg, encoding="utf-8")
 
 # 兼容旧项目和自动设施的通用标志图例，采用警告类别标准外观。
-(ROOT / "desktop" / "assets" / "facilities" / "sign.svg").write_text(
+(ROOT / "tools" / "facility-assets" / "assets" / "facilities" / "sign.svg").write_text(
     render_sign_support_svg(0, "single_post"), encoding="utf-8"
 )
 

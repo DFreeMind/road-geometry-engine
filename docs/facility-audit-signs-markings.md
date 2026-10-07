@@ -1,6 +1,6 @@
 # 标志与标线逐项复核（14项）
 
-日期：2026-10-02。核对对象为 `desktop/facility_catalog.py` 的基础模板、`facility_support.py` 的牌面和支撑图例。结论针对原型表达能力，不是已放置实例的工程验收。
+日期：2026-10-02。核对对象为 `tools/facility-assets/facility_catalog.py` 的基础模板、`facility_support.py` 的牌面和支撑图例。结论针对原型表达能力，不是已放置实例的工程验收。
 
 ## 证据范围
 

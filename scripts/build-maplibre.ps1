@@ -34,3 +34,5 @@ $temporaryPointer = Join-Path $profilePath 'current-build.tmp'
 [IO.File]::WriteAllText($temporaryPointer, $buildName, [Text.UTF8Encoding]::new($false))
 Move-Item -LiteralPath $temporaryPointer -Destination $pointerPath -Force
 Write-Output "桌面程序：$(Join-Path $destination 'lujing-desktop.exe')"
+# 新版本部署完成后仅保留当前、备用及运行中的版本。
+try { & (Join-Path $PSScriptRoot 'clean-desktop-builds.ps1') } catch { Write-Warning "历史部署清理未完成：$_" }

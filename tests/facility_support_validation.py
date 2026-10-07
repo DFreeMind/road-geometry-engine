@@ -6,7 +6,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "desktop"))
+sys.path.insert(0, str(ROOT / "tools" / "facility-assets"))
 from facility_catalog import default_catalog
 from facility_icons import icon_path
 from facility_support import (
