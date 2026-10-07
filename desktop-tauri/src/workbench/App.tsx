@@ -171,6 +171,11 @@ import { AlongRouteTools } from "./AlongRouteTools";
 import { BasemapPicker } from "./BasemapPicker";
 import { registerBasemapProtocols, type BasemapConfig } from "./basemaps";
 import {
+  formatOnlineBasemapLoadError,
+  isStaleOnlineBasemapLoadError,
+  sanitizeMapLoadErrorReason,
+} from "./MapLoadErrors";
+import {
   DataSourceTools,
   FieldMappingTools,
   type Field,
@@ -2046,7 +2051,21 @@ function Workbench() {
       fitProject(map, projectRef.current);
     });
     map.on("error", (event) => {
-      const reason = event.error?.message ?? "未知渲染错误";
+      const basemapError = formatOnlineBasemapLoadError(
+        event as any,
+        selectedBasemapRef.current,
+      );
+      if (basemapError) {
+        setStatus(basemapError, "error");
+        return;
+      }
+      if (
+        isStaleOnlineBasemapLoadError(event as any, selectedBasemapRef.current)
+      )
+        return;
+      const reason = sanitizeMapLoadErrorReason(
+        event.error?.message ?? "未知渲染错误",
+      );
       setStatus(`地图渲染错误：${reason}`, "error");
     });
     map.on("click", (event) => onMapClickRef.current(event));

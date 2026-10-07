@@ -11,6 +11,7 @@
 | 空工程启动、菜单与底图入口 | [启动与导航改进](startup-navigation-20261007.md)、[真实道路案例](road-examples.md) |
 | 公开底图与影像更新限制 | [免令牌来源核验](public-basemaps-20261007.md)、[参考地图与离线字体](geo-viewer-reference-font.md) |
 | 常用底图与高分辨率影像 | [目录取舍](basemap-catalog-curation.md)、[选择器与验证](basemap-picker-curation.md)、[新增影像](free-quality-basemaps.md) |
+| 在线底图访问与错误提示 | [Esri访问核验](esri-image-access.md) |
 | 地图滚轮与触控板缩放 | [交互规则与验证](map-wheel-zoom.md) |
 | 标注界面与 Hana 生成修复 | [交互调整](marked-ui-refinement.md)、[几何修复](hana-generation-fix.md) |
 | 引擎输入、输出和限制 | [本地引擎协议](engine-interface.md) |
