@@ -496,7 +496,7 @@
   backdrop-filter: blur(8px);
 }
 
-.design-refined .current-tool-chip svg {
+.design-refined .current-tool-chip :is(svg, .app-icon) {
   flex: none;
   color: var(--refine-blue);
 }
@@ -545,7 +545,7 @@
   box-shadow: 0 2px 8px #20385816;
 }
 
-.design-refined .basemap-chip > svg {
+.design-refined .basemap-chip > :is(svg, .app-icon) {
   width: 15px;
   height: 15px;
 }
@@ -704,7 +704,7 @@
   font-size: 10px;
 }
 
-.design-refined .workbench-footer .map-coordinate svg {
+.design-refined .workbench-footer .map-coordinate :is(svg, .app-icon) {
   flex: none;
   color: #1677ff;
 }
@@ -883,7 +883,7 @@
   }
 }
 
-.design-refined .map-top-controls button span {
+.design-refined .map-top-controls button span:not(.app-icon) {
   font-size: 12px;
 }
 .design-refined .compact-layer-list .layer-row strong {

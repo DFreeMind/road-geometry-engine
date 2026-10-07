@@ -16,6 +16,9 @@ export class MapScaleZoomControl implements IControl {
     this.map = map;
     this.container = document.createElement("div");
     this.container.className = "maplibregl-ctrl map-scale-zoom";
+    this.container.setAttribute("role", "group");
+    this.container.setAttribute("aria-label", "地图比例尺与缩放级别");
+    this.container.setAttribute("data-testid", "map-scale-zoom");
     this.container.append(this.scale.onAdd(map));
     this.label = document.createElement("span");
     this.label.className = "map-zoom-level";

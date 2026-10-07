@@ -14,7 +14,7 @@ import {
   Settings2,
   Trash2,
   X,
-} from "lucide-react";
+} from "./Iconfont";
 import type { Feature } from "geojson";
 import type { SourceDataset } from "./sourceBatch";
 import "./SourceDatasetManager.css";

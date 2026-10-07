@@ -22,6 +22,8 @@ describe("底图目录与服务配置", () => {
       "ign-ortho",
       "osmfr-hot",
       "osmfr",
+      "opentopomap",
+      "openfreemap-liberty",
       "nasa-gibs",
       "nasa-viirs",
       "osm",
@@ -36,6 +38,8 @@ describe("底图目录与服务配置", () => {
       "ign-ortho",
       "osmfr-hot",
       "osmfr",
+      "opentopomap",
+      "openfreemap-liberty",
       "nasa-viirs",
     ]) {
       const config = createPresetConfig(id);
@@ -52,6 +56,13 @@ describe("底图目录与服务配置", () => {
     expect(viirs.url).toMatch(/\/\d{4}-\d{2}-\d{2}\//);
     expect(viirs.label).toMatch(/· \d{4}-\d{2}-\d{2}$/);
     expect(createPresetConfig("nasa-gibs").url).not.toContain("{date}");
+
+    const openFreeMap = createPresetConfig("openfreemap-liberty");
+    expect(openFreeMap.sourceType).toBe("style");
+    expect(openFreeMap.styleUrl).toBe(
+      "https://tiles.openfreemap.org/styles/liberty",
+    );
+    expect(createPresetConfig("opentopomap").sourceType).toBe("xyz");
   });
 
   it("只接受有效 ArcGIS URL 安全令牌并将其编码进会话 URL", () => {

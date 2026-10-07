@@ -361,7 +361,7 @@ button:disabled {
 .dropzone strong {
   font-size: 11px;
 }
-.dropzone > span {
+.dropzone > span:not(.app-icon) {
   margin-top: 4px;
   color: #8a95a3;
   font-size: 9px;
@@ -474,8 +474,8 @@ button:disabled {
   font-size: 9px;
   line-height: 1.55;
 }
-.mapping-hint svg,
-.compat-note svg {
+.mapping-hint :is(svg, .app-icon),
+.compat-note :is(svg, .app-icon) {
   flex: none;
   color: #8191a3;
 }
@@ -791,7 +791,7 @@ button:disabled {
   font-size: 8px;
   white-space: nowrap;
 }
-.map-coordinate svg {
+.map-coordinate :is(svg, .app-icon) {
   color: #8090a2;
 }
 .coord-divider {
@@ -894,7 +894,7 @@ button:disabled {
   color: #8a95a3;
   font-size: 8px;
 }
-.local-map-option > svg {
+.local-map-option > :is(svg, .app-icon) {
   color: #12a46c;
 }
 .blank-map-swatch {
@@ -1136,7 +1136,7 @@ button:disabled {
   background: #f8fbff;
   color: #1677ff;
 }
-.template-card > span {
+.template-card > span:not(.app-icon) {
   flex: 1;
   min-width: 0;
 }
@@ -1798,7 +1798,7 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.map-coordinate svg,
+.map-coordinate :is(svg, .app-icon),
 .coord-divider {
   flex-shrink: 0;
 }
@@ -2222,7 +2222,7 @@ button:focus-visible {
   color: #254d7a;
   font-size: 12px;
 }
-.drawing-hint > span {
+.drawing-hint > span:not(.app-icon) {
   flex: 1;
 }
 .map-workspace {
@@ -2685,7 +2685,7 @@ button:focus-visible {
   white-space: normal;
   pointer-events: auto;
 }
-.drawing-hint > span {
+.drawing-hint > span:not(.app-icon) {
   min-width: 0;
 }
 .map-context {
@@ -2726,7 +2726,7 @@ button:focus-visible {
   grid-row: 1 / 4;
   margin: 0;
 }
-.data-panel .dropzone > span {
+.data-panel .dropzone > span:not(.app-icon) {
   margin-top: 3px;
 }
 .data-panel .inline-actions {
@@ -3457,7 +3457,7 @@ button:focus-visible {
   height: auto;
   min-height: 64px;
 }
-.app-shell .export-format-list > button > span {
+.app-shell .export-format-list > button > span:not(.app-icon) {
   flex: 1;
   display: grid;
   gap: 4px;

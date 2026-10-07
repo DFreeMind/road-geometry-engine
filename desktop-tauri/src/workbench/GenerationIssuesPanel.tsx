@@ -20,7 +20,7 @@ import {
   Search,
   Settings2,
   X,
-} from "lucide-react";
+} from "./Iconfont";
 import { createIssueSnapshot } from "./GenerationIssuesBridge";
 import "./GenerationIssuesPanel.css";
 

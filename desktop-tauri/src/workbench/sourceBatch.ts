@@ -810,7 +810,8 @@ export function prepareSourceBatch(
             input_signature: hash(
               canonical({
                 // 几何规则升级后不复用旧算法成果，源数据与人工覆盖保持不变。
-                geometry_rule_version: "offset-local-loops-v3-outer-round-join",
+                geometry_rule_version:
+                  "offset-local-loops-v5-crossing-span-iterative-outer-round-join",
                 request: {
                   ...request,
                   scene_options: {

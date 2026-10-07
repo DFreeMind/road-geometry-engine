@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "./Iconfont";
 import "./WorkbenchMenu.css";
 import { isImeComposing } from "./imeKeyboard";
 export type WorkbenchCommand = {

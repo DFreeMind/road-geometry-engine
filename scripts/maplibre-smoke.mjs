@@ -66,7 +66,7 @@ const clickText = async text => {
   if (currentText === '表达式' && !(await evaluate('Boolean(document.querySelector(".route-feature-selector__local-filter"))')))
     await clickText('高级筛选');
   // 检查和点击在同一轮 DOM 读取中完成，避免认证恢复重渲染使按钮引用过期。
-  await waitFor(`(()=>{const b=[...document.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(currentText)});if(!b||b.disabled||b.closest('[inert]'))return false;b.click();return true;})()`);
+  await waitFor(`(()=>{const b=[...document.querySelectorAll('button')].find(item=>{const copy=item.cloneNode(true);copy.querySelectorAll('.app-icon').forEach(icon=>icon.remove());return copy.textContent.trim()===${JSON.stringify(currentText)};});if(!b||b.disabled||b.closest('[inert]'))return false;b.click();return true;})()`);
 };
 const openConnectionOperations = async () => {
   await ensureSourceEntry('connection');
@@ -97,12 +97,15 @@ const checks = [];
 const check = (name, details) => checks.push({ name, passed: true, details });
 try {
   await command('Runtime.enable'); await command('Page.enable'); await command('Log.enable');
+  await waitFor('Boolean(window.__TAURI_INTERNALS__ && window.__ROAD_WORKBENCH__)');
   originalLayout=await evaluate('localStorage.getItem("road-workbench-layout")');
   await evaluate('localStorage.removeItem("road-workbench-layout")');
   await command('Page.reload');
   await waitFor('Boolean(window.__TAURI_INTERNALS__ && window.__ROAD_WORKBENCH__ && document.querySelector(".maplibregl-canvas"))');
   await new Promise(resolve => setTimeout(resolve, 800));
   await waitFor('window.__ROAD_WORKBENCH__.getMap()?.isStyleLoaded()');
+  // 字体 ligature 文本不属于按钮的可见操作名称，匹配前仅在副本中去除装饰图标。
+  await evaluate(`window.__ROAD_QA_TEXT__ = node => {const copy=node.cloneNode(true);copy.querySelectorAll('.app-icon').forEach(icon=>icon.remove());return copy.textContent.trim();}`);
   const fixtureRequest=JSON.parse(await fs.readFile(path.join(workspace,'fixtures/example-request.json'),'utf8'));
   await evaluate(`(()=>{const p=window.__ROAD_WORKBENCH__.getProject();window.__ROAD_WORKBENCH__.loadProject({...p,route_id:${JSON.stringify(fixtureRequest.route_id)},route_points:${JSON.stringify(fixtureRequest.points)},route_source:'synthetic_fixture',section:${JSON.stringify(fixtureRequest.section)}});})()`);
   await new Promise(resolve=>setTimeout(resolve,400));
@@ -191,7 +194,8 @@ try {
   assert(await evaluate(`window.__ROAD_WORKBENCH__.getMap().getZoom()<${pinchInZoom}`));
   await waitFor('document.querySelector(".map-zoom-level")?.textContent===`Z ${window.__ROAD_WORKBENCH__.getMap().getZoom().toFixed(2)}`');
   assert.equal(await evaluate('window.visualViewport.scale'),1,'捏合不能缩放工作台网页');
-  assert(await evaluate(`(()=>{const s=document.querySelector('.maplibregl-ctrl-scale').getBoundingClientRect(),z=document.querySelector('.map-zoom-level').getBoundingClientRect();return z.left>=s.right&&Math.abs(z.bottom-s.bottom)<=2;})()`));
+  const scaleZoomLayout=await evaluate(`(()=>{const s=document.querySelector('.maplibregl-ctrl-scale').getBoundingClientRect(),z=document.querySelector('.map-zoom-level').getBoundingClientRect();return {scale:s.toJSON(),zoom:z.toJSON()};})()`);
+  assert(scaleZoomLayout.zoom.left>=scaleZoomLayout.scale.right-0.5&&Math.abs((scaleZoomLayout.zoom.top+scaleZoomLayout.zoom.bottom)/2-(scaleZoomLayout.scale.top+scaleZoomLayout.scale.bottom)/2)<=2,JSON.stringify(scaleZoomLayout));
   await screenshot('45-trackpad-zoom-level.png');
   check('双指捏合缩小、页面缩放隔离与比例尺旁实时Z值',true);
   // 合成浏览器原生捏合，不直接注入 Ctrl+wheel：可检出容器关闭原生手势的回归。
@@ -424,9 +428,9 @@ try {
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'),3.5);
   await screenshot('07-cross-section.png');
   assert.deepEqual(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes'),await evaluate('window.__ROAD_WORKBENCH__.getProject().section.right_lanes')); check('横断面分组与明确复制方向',true);
-  await click('[aria-label="切换路线摘要"]'); await waitFor('document.querySelector(".route-card-stats") !== null');
-  await click('[aria-label="切换图例"]'); await waitFor('document.querySelector(".legend-title").getAttribute("aria-expanded") === "true"');
-  await click('[aria-label="切换路线摘要"]'); await click('[aria-label="切换图例"]'); check('图例与路线摘要真实折叠',true);
+  await click('[aria-label="视图菜单"]'); await click('[data-command-label="路线摘要"]'); await waitFor('document.querySelector(".route-card-stats") !== null');
+  await click('[aria-label="切换图例"]'); await waitFor(`document.querySelector('.map-actions [aria-label="切换图例"]').getAttribute("aria-expanded") === "true"`);
+  await click('[aria-label="视图菜单"]'); await click('[data-command-label="路线摘要"]'); await click('[aria-label="切换图例"]'); check('图例与路线摘要真实折叠',true);
   await click('[aria-label="折叠工具面板"]'); await waitFor('getComputedStyle(document.querySelector(".side-panel")).display === "none"');
   await click('[aria-label="展开工具面板"]'); await waitFor('getComputedStyle(document.querySelector(".side-panel")).display !== "none"'); check('工具面板折叠与恢复',true);
   await click('[aria-label="折叠检查器"]'); await waitFor('getComputedStyle(document.querySelector(".inspector")).display === "none"');
@@ -456,9 +460,9 @@ try {
   await waitFor('getComputedStyle(document.querySelector(".side-panel")).display === "none" && getComputedStyle(document.querySelector(".inspector")).display !== "none"');
   await click('[aria-label="展开工具面板"]'); check('专注地图与原有面板组合恢复',true);
   await click('[aria-label="绘制路线"]');
-  await click('[aria-label="切换路线摘要"]'); await click('[aria-label="切换图例"]');
-  assert(await evaluate(`(()=>{const hint=document.querySelector('.drawing-hint').getBoundingClientRect();const route=document.querySelector('.route-map-card').getBoundingClientRect();const legend=document.querySelector('.legend-card').getBoundingClientRect();const tools=document.querySelector('.map-top-controls').getBoundingClientRect();return hint.top>=Math.max(route.bottom,legend.bottom)&&route.top>=tools.bottom&&route.right<=legend.left;})()`), '绘制提示、路线摘要或图例互相遮挡');
-  await screenshot('15-drawing-overlays.png');check('窄画布绘制提示与展开摘要图例无重叠',true);
+  await click('[aria-label="视图菜单"]'); await click('[data-command-label="路线摘要"]'); await click('[aria-label="切换图例"]');
+  assert(await evaluate(`(()=>{const hint=document.querySelector('.drawing-hint').getBoundingClientRect();const route=document.querySelector('.route-map-card').getBoundingClientRect();const legend=document.querySelector('#map-legend-popover').getBoundingClientRect();const tools=document.querySelector('.map-top-controls').getBoundingClientRect();const map=document.querySelector('.map-workspace').getBoundingClientRect();return hint.top>=route.bottom&&route.top>=tools.bottom&&legend.left>=map.left&&legend.right<=map.right&&legend.bottom<=map.bottom;})()`), '绘制提示与摘要重叠或工具栏图例浮层超出地图');
+  await screenshot('15-drawing-overlays.png');check('窄画布绘制提示避让摘要且图例浮层位于地图内',true);
   const menuPoint = await evaluate('(()=>{const r=document.querySelector(".map-workspace").getBoundingClientRect();const footer=document.querySelector(".map-statusbar").getBoundingClientRect();return {x:r.right-10,y:footer.top-3};})()');
   await command('Input.dispatchMouseEvent',{type:'mousePressed',...menuPoint,button:'right',clickCount:1});
   await command('Input.dispatchMouseEvent',{type:'mouseReleased',...menuPoint,button:'right',clickCount:1});
@@ -478,7 +482,7 @@ try {
   assert(await evaluate('Boolean(document.querySelector(".drawing-hint"))'), '底图关闭意外退出绘制');
   assert.equal(await evaluate('document.querySelector(".status-message").textContent'),pickerStatus);check('底图锚定布局与关闭时保留绘制状态',true);
   await click('[aria-label="选择与平移"]');
-  await click('[aria-label="切换路线摘要"]'); await click('[aria-label="切换图例"]');
+  await click('[aria-label="视图菜单"]'); await click('[data-command-label="路线摘要"]'); await click('[aria-label="切换图例"]');
   await click('[aria-label="调整左侧面板宽度"]');
   await evaluate(`document.querySelector('[aria-label="调整左侧面板宽度"]').focus()`);
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight'});
@@ -524,9 +528,9 @@ try {
   assert.equal(await evaluate("JSON.parse(localStorage.getItem('road-data-connections-v1')).connections[0].layers.length"),0);
   assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '保存连接后不重复展开会话密码');
   assert.equal(await evaluate("document.querySelector('.source-browser__operations').open"),false, '连接操作默认折叠');
-  assert.equal(await evaluate("[...document.querySelectorAll('.source-browser > button')].some(b=>b.innerText.trim()==='浏览空间目录')"),true, '无已添加图层时主按钮浏览空间目录');
+  assert.equal(await evaluate("[...document.querySelectorAll('.source-browser > button')].some(b=>window.__ROAD_QA_TEXT__(b).trim()==='浏览空间目录')"),true, '无已添加图层时主按钮浏览空间目录');
   await openConnectionOperations();
-  assert(await evaluate("[...document.querySelectorAll('.source-browser__operations button')].some(b=>b.innerText.trim()==='管理数据连接')"));
+  assert(await evaluate("[...document.querySelectorAll('.source-browser__operations button')].some(b=>window.__ROAD_QA_TEXT__(b).trim()==='管理数据连接')"));
   await evaluate('document.querySelector(".source-browser__operations").open=false');
   check('数据库级连接无需填写路线表，连接操作折叠且主按钮浏览目录',true);
   await click('[aria-label="管理数据连接"]');
@@ -535,7 +539,7 @@ try {
   await fillConnection('主机','127.0.0.1');await fillConnection('端口',1);
   assert.equal(await evaluate("[...document.querySelectorAll('.connection-manager label')].find(l=>l.textContent.trim().startsWith('密码')).querySelector('input').value"),'', '更改连接身份时清除旧密码');
   const projectBeforeTest=await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())');
-  await waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接')?.disabled");
+  await waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>window.__ROAD_QA_TEXT__(b)==='测试连接')?.disabled");
   await clickText('测试连接');
   await waitFor("document.querySelector('.connection-manager [role=status]')?.innerText.includes('连接测试失败')",30);
   assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())'),projectBeforeTest);
@@ -543,7 +547,7 @@ try {
   const connectionViewport=await evaluate('({width:innerWidth,height:innerHeight})');
   await command('Emulation.setDeviceMetricsOverride',{width:860,height:640,deviceScaleFactor:1,mobile:false});
   await screenshot('29-connection-test-narrow.png');
-  assert(await evaluate("(()=>{const b=[...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接');const r=b.getBoundingClientRect();return r.bottom<=innerHeight&&b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()"));
+  assert(await evaluate("(()=>{const b=[...document.querySelectorAll('.connection-manager button')].find(b=>window.__ROAD_QA_TEXT__(b)==='测试连接');const r=b.getBoundingClientRect();return r.bottom<=innerHeight&&b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()"));
   check('窄窗口连接测试与保存操作可访问',true);
   await command('Emulation.setDeviceMetricsOverride',{...connectionViewport,deviceScaleFactor:1,mobile:false});
 
@@ -591,7 +595,7 @@ try {
   assert.equal(await evaluate(`document.querySelector('[aria-label="选择数据连接"]').options.length`),2);
   await click('[aria-label="管理数据连接"]');await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
   await waitFor('!document.querySelector(".connection-manager")');
-  assert.equal(await evaluate('document.activeElement.innerText.trim()'),'管理数据连接');
+  assert.equal(await evaluate('window.__ROAD_QA_TEXT__(document.activeElement)'),'管理数据连接');
   check('多连接、新增Schema图层、复制删除、公开配置无密码和管理窗口焦点',true);
   await evaluate("(()=>{const e=document.querySelector('[aria-label=\"选择数据连接\"]');e.value=JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库').id;e.dispatchEvent(new Event('change',{bubbles:true}));})()");
   assert(await evaluate("!document.querySelector('.source-browser input[type=password]')"), '切换回来复用原连接的会话认证');
@@ -608,10 +612,10 @@ try {
   check('空间数据库运行时驱动检测及缺失依赖提示',true);
   const databaseProjectBefore=await evaluate('window.__ROAD_WORKBENCH__.getProject()');
   const chooseDatabaseKind=(kind)=>evaluate(`(()=>{const e=document.querySelector('[aria-label="数据库类型"]');e.value=${JSON.stringify(kind)};e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  const waitDatabaseTestReady=()=>waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接')?.disabled");
+  const waitDatabaseTestReady=()=>waitFor("![...document.querySelectorAll('.connection-manager button')].find(b=>window.__ROAD_QA_TEXT__(b)==='测试连接')?.disabled");
   await click('[aria-label="管理数据连接"]');await clickText('新建连接');await chooseDatabaseKind('mssql');
   const sqlAvailable=databaseCapabilities.databases.find(c=>c.kind==='mssql').available;
-  if(!sqlAvailable){await waitFor("document.querySelector('.connection-manager .source-browser__status')?.innerText.includes('ODBC')");assert(await evaluate("[...document.querySelectorAll('.connection-manager button')].find(b=>b.innerText==='测试连接').disabled"));}
+  if(!sqlAvailable){await waitFor("document.querySelector('.connection-manager .source-browser__status')?.innerText.includes('ODBC')");assert(await evaluate("[...document.querySelectorAll('.connection-manager button')].find(b=>window.__ROAD_QA_TEXT__(b)==='测试连接').disabled"));}
   await screenshot('31-sqlserver-dependency.png');
   await chooseDatabaseKind('oracle');
   if(!databaseCapabilities.databases.find(c=>c.kind==='oracle').available) await waitFor("document.querySelector('.connection-manager .source-browser__status')?.innerText.includes('Oracle Client')");
@@ -626,7 +630,7 @@ try {
     const beforeBrowse=await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())');
     await clickText('连接并浏览空间表');await waitFor("Boolean(document.querySelector('[aria-label=\"选择空间表\"]'))");
     assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject())'),beforeBrowse, '枚举目录不导入数据或改变工程');
-    assert(await evaluate("[...document.querySelectorAll('button')].find(b=>b.innerText==='添加所选路线图层').disabled"), '目录不自动选择或添加表');
+    assert(await evaluate("[...document.querySelectorAll('button')].find(b=>window.__ROAD_QA_TEXT__(b)==='添加所选路线图层').disabled"), '目录不自动选择或添加表');
     await evaluate(`(()=>{const e=document.querySelector('[aria-label="选择空间表"]');const option=[...e.options].find(o=>o.value && JSON.parse(o.value)[1]===${JSON.stringify(table)});if(!option)throw new Error('目录缺少目标空间表');e.value=option.value;e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await screenshot('36-space-table-picker.png');await clickText('添加所选路线图层');
     await waitFor("!document.querySelector('[aria-label=\"选择数据源图层\"]').disabled");
@@ -818,7 +822,7 @@ try {
   await evaluate(`window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),source_label:'other-source',source_mapping:{route_id:'missing_old_field'}})`);
   await click('[aria-label="数据"]');await queueDialog('open',uiGpkgFile);await click('[aria-label="导入本地路线"]');
   await waitFor('document.querySelector(".workbench-dialog")?.innerText.includes("选择数据图层")');
-  await evaluate(`[...document.querySelectorAll('.route-choice-list button')].find(b=>b.innerText.startsWith('参考线 ·')).click()`);
+  await evaluate(`[...document.querySelectorAll('.route-choice-list button')].find(b=>window.__ROAD_QA_TEXT__(b).startsWith('参考线 ·')).click()`);
   await waitFor('Boolean(document.querySelector(".route-feature-selector__table"))');
   await click('[aria-label="选择第 1 条路线"]');await clickText('加载到地图（1）');
   await waitFor('String(window.__ROAD_WORKBENCH__.getProject().source_label).endsWith(" · 参考线")');
@@ -841,7 +845,7 @@ try {
   assert(await evaluate('document.querySelector(".route-feature-selector")?.innerText.includes("已选 2")'));
   await command('Emulation.setDeviceMetricsOverride',{width:1024,height:600,deviceScaleFactor:1,mobile:false});
   await waitFor('window.innerHeight===600');
-  assert(await evaluate(`(()=>{const d=document.querySelector('.workbench-dialog').getBoundingClientRect(),t=document.querySelector('.route-feature-selector__table-scroll').getBoundingClientRect(),n=document.querySelector('.route-feature-selector__pagination').getBoundingClientRect(),b=[...document.querySelectorAll('.route-feature-selector button')].find(b=>b.innerText==='加载到地图（2）').getBoundingClientRect();return t.top>=d.top&&t.height>=60&&t.bottom<=n.top+1&&n.bottom<=b.top+1&&b.bottom<=d.bottom&&d.bottom<=600;})()`), '600px窗口属性表、分页与确认不能互相覆盖');
+  assert(await evaluate(`(()=>{const d=document.querySelector('.workbench-dialog').getBoundingClientRect(),t=document.querySelector('.route-feature-selector__table-scroll').getBoundingClientRect(),n=document.querySelector('.route-feature-selector__pagination').getBoundingClientRect(),b=[...document.querySelectorAll('.route-feature-selector button')].find(b=>window.__ROAD_QA_TEXT__(b)==='加载到地图（2）').getBoundingClientRect();return t.top>=d.top&&t.height>=60&&t.bottom<=n.top+1&&n.bottom<=b.top+1&&b.bottom<=d.bottom&&d.bottom<=600;})()`), '600px窗口属性表、分页与确认不能互相覆盖');
   await screenshot('44-neutral-small-window.png');
   await command('Emulation.clearDeviceMetricsOverride');
   await screenshot('44-neutral-offline-source.png');
@@ -865,7 +869,7 @@ try {
   await evaluate(`(()=>{const e=document.querySelector('[aria-label="数据源筛选条件"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,"left(route_id, 3) = 'G10' AND right(route_id, 4) = '2501'");e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await clickText('查询数据源');
   await waitFor('document.querySelectorAll(".route-feature-selector__table tbody tr").length===1 && document.querySelector(".route-feature-selector__table tbody").innerText.includes("G10-2501")');
-  assert(await evaluate('[...document.querySelectorAll(".route-feature-selector button")].find(b=>b.innerText==="加载到地图（0）").disabled'), '更改来源条件必须清空旧选择');
+  assert(await evaluate('[...document.querySelectorAll(".route-feature-selector button")].find(b=>window.__ROAD_QA_TEXT__(b)==="加载到地图（0）").disabled'), '更改来源条件必须清空旧选择');
   await click('[aria-label="选择第 1 条路线"]');await clickText('加载到地图（1）');
   await waitFor('window.__ROAD_WORKBENCH__.getProject().mapped_attributes?.id===2501');
   assert((await evaluate('window.__ROAD_WORKBENCH__.getProject().source_fields')).some(f=>typeof f==='string'?f==='note':f.name==='note'));
@@ -989,7 +993,7 @@ try {
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'),4.25);check('横断面字段映射进入输入并拒绝无效数值',true);
 
   await evaluate(`(()=>{const c=JSON.parse(localStorage.getItem('road-data-connections-v1')).connections.find(c=>c.name==='道路主库'),l=c.layers.find(l=>l.schema==='design');window.__ROAD_WORKBENCH__.loadProject({...window.__ROAD_WORKBENCH__.getProject(),manual_section:null,source_mapping:{},source_fields:['route_id','left_lane_count','left_lane_width'],mapped_attributes:{route_id:'QA-RULE',left_lane_count:1,left_lane_width:4.25},source_binding:{connectionId:c.id,layerId:l.id,label:c.name+' / '+l.name,fingerprint:JSON.stringify([c.kind,c.config,l.schema,l.table,l.geometry_column,l.type_name])}});})()`);
-  await waitFor('Boolean([...document.querySelectorAll("button")].find(b=>b.innerText==="自动识别字段"))');
+  await waitFor('Boolean([...document.querySelectorAll("button")].find(b=>b.textContent.includes("自动识别字段")))');
   assert(!(await evaluate('window.__ROAD_WORKBENCH__.getProject().source_mapping.left_lane_width')));
   await clickText('自动识别字段');await waitFor('window.__ROAD_WORKBENCH__.getProject().route_id==="QA-RULE"');
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'),4.25);

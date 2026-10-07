@@ -203,11 +203,11 @@
   background: #f2f6fa;
 }
 
-.source-dataset__expand svg {
+.source-dataset__expand :is(svg, .app-icon) {
   transition: transform 120ms ease;
 }
 
-.source-dataset__expand svg.is-expanded {
+.source-dataset__expand :is(svg, .app-icon).is-expanded {
   transform: rotate(180deg);
 }
 

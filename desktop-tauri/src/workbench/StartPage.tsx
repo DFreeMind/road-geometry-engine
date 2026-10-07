@@ -8,7 +8,7 @@ import {
   Route,
   Database,
   ImagePlus,
-} from "lucide-react";
+} from "./Iconfont";
 import "./StartPage.css";
 
 export type RecentProject = {

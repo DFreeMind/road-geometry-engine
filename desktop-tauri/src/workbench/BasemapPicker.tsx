@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, FileUp, Search, X } from "lucide-react";
+import { Check, FileUp, Search, X } from "./Iconfont";
 import {
   BASEMAP_GROUPS,
   BASEMAP_PRESETS,

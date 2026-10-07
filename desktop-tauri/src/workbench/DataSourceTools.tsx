@@ -25,7 +25,7 @@ import {
   Copy,
   X,
   Layers3,
-} from "lucide-react";
+} from "./Iconfont";
 import {
   sourceLabels,
   fileDatabase,

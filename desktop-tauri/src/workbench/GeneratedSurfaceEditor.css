@@ -75,7 +75,7 @@
   background: #f4f8fb;
   color: var(--gse-ink);
 }
-.generated-surface-editor__close svg {
+.generated-surface-editor__close :is(svg, .app-icon) {
   width: 17px;
   height: 17px;
   fill: none;
@@ -449,7 +449,7 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
-.generated-surface-editor__delete-actions svg {
+.generated-surface-editor__delete-actions :is(svg, .app-icon) {
   width: 14px;
   height: 14px;
   flex: none;

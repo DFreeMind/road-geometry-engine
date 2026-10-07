@@ -36,7 +36,7 @@
 
 ## 急弯圆角与车道表达
 
-当前规则版本为 `offset-local-loops-v3-outer-round-join`。普通转角保留原 miter；仅凸外侧 miter 比例超过 2 时使用半径为偏移绝对值的圆角，每象限 8 段。凹内侧仍保留 miter 上限 8；真实掉头、退化、自交及组件交叠继续校验，不用任意中心线平滑掩盖问题。圆弧点保存源控制点和几何里程映射，相邻组件共享边界，自动设施按同一里程映射布设。圆角策略及数量写入需复核警告。此策略参考 [GEOS OffsetCurve](https://libgeos.org/doxygen/classgeos_1_1operation_1_1buffer_1_1OffsetCurve.html) 和 [JTS OffsetCurve](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/operation/buffer/OffsetCurve.html) 的连接样式、miter 上限和圆角分段做法。
+该轮规则版本为 `offset-local-loops-v3-outer-round-join`（后续 v5 局部修复见 [Hana 修复](hana-generation-fix.md)）。普通转角保留原 miter；仅凸外侧 miter 比例超过 2 时使用半径为偏移绝对值的圆角，每象限 8 段。凹内侧仍保留 miter 上限 8；真实掉头、退化、自交及组件交叠继续校验，不用任意中心线平滑掩盖问题。圆弧点保存源控制点和几何里程映射，相邻组件共享边界，自动设施按同一里程映射布设。圆角策略及数量写入需复核警告。此策略参考 [GEOS OffsetCurve](https://libgeos.org/doxygen/classgeos_1_1operation_1_1buffer_1_1OffsetCurve.html) 和 [JTS OffsetCurve](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/operation/buffer/OffsetCurve.html) 的连接样式、miter 上限和圆角分段做法。
 
 引擎响应及每个成果要素带左右车道数，车道面还带所属侧车道数量和实际 `lane_width_m`。当前路线摘要、工程属性显示左/右及总车道数量，依据逐记录映射或人工断面，不依据总宽度猜测。启用“道路标线”后，地图区分白色车道分隔虚线、白色边缘实线及中央黄色实线。标线样式是地图像素表达，不能作为施工标线规范验收或替代真实生产面的尺寸。
 

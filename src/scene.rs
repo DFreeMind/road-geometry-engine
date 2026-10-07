@@ -168,14 +168,21 @@ pub(crate) fn build_ancillary_layers(
         if let Some((_, line)) = offsets.iter().find(|(offset, _)| *offset == value) {
             return Ok(line.clone());
         }
-        let (line, repair) = offset_line_with_local_repair(route, value, &cumulative)?;
+        let (line, repairs) = offset_line_with_local_repair(route, value, &cumulative)?;
         if line.rounded_join_count > 0 {
             geometry_warnings.push(offset_round_join_warning(value, line.rounded_join_count));
         }
         let mut coordinates = line.coordinates;
         let mut stations = line.stations;
-        if let Some(repair) = repair {
-            geometry_warnings.push(offset_repair_warning(value, repair));
+        for repair in &repairs {
+            geometry_warnings.push(offset_repair_warning(value, *repair));
+        }
+        let mut station_repairs: Vec<_> = repairs
+            .into_iter()
+            .filter(|repair| repair.crossing_retained)
+            .collect();
+        station_repairs.sort_by_key(|repair| std::cmp::Reverse(repair.crossing_index));
+        for repair in station_repairs {
             let station_anchor = repair.crossing_index + 1;
             if station_anchor > coordinates.len() || station_anchor > stations.len() {
                 return Err("offset repair station anchor is outside the mapped line".into());

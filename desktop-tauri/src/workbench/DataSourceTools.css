@@ -425,7 +425,7 @@
   color: #5c7085;
   font-size: 11px;
 }
-.source-browser__context svg {
+.source-browser__context :is(svg, .app-icon) {
   flex-shrink: 0;
 }
 .source-browser__context span {
@@ -573,7 +573,7 @@
   text-align: left;
   font: inherit;
 }
-.connection-item > button span {
+.connection-item > button span:not(.app-icon) {
   display: grid;
   gap: 4px;
   min-width: 0;

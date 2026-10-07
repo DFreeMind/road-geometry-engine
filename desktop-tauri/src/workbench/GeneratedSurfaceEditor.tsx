@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RouteSection } from "../domain";
+import { Trash2, X } from "./Iconfont";
 import "./GeneratedSurfaceEditor.css";
 
 export type GeneratedSurfaceSelection = {
@@ -211,9 +212,7 @@ export function GeneratedSurfaceEditor({
           aria-label="关闭成果编辑面板"
           title="关闭"
         >
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="m5 5 10 10M15 5 5 15" />
-          </svg>
+          <X size={20} aria-hidden="true" />
         </button>
       </header>
 
@@ -421,9 +420,7 @@ export function GeneratedSurfaceEditor({
           disabled={locked}
           aria-label={`删除选中组成：${selection.componentLabel}`}
         >
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M4 6h12M8 6V4h4v2m-6 0 1 10h6l1-10M8 9v4m4-4v4" />
-          </svg>
+          <Trash2 size={18} aria-hidden="true" />
           删除选中组成
         </button>
         <button
@@ -432,9 +429,7 @@ export function GeneratedSurfaceEditor({
           disabled={locked}
           aria-label="删除此路段成果"
         >
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M4 6h12M8 6V4h4v2m-6 0 1 10h6l1-10M8 9v4m4-4v4" />
-          </svg>
+          <Trash2 size={18} aria-hidden="true" />
           删除此路段成果
         </button>
         <p>只删除生成成果，不删除路线来源。修改随工程保存，可撤销。</p>

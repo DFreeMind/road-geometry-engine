@@ -13,10 +13,12 @@ const MAX_TOTAL_WIDTH_M: f64 = 200.0;
 const EPS: f64 = 1.0e-9;
 const MAX_LOCAL_LOOP_OFFSET_FACTOR: f64 = 4.0;
 const MAX_LOCAL_LOOP_SOURCE_SEGMENTS: usize = 8;
+const MAX_LOCAL_LOOP_REPAIRS: usize = 16;
 const MAX_INNER_MITER_RATIO: f64 = 8.0;
 const OUTER_ROUND_JOIN_MITER_RATIO: f64 = 2.0;
 const ROUND_JOIN_SEGMENTS_PER_QUADRANT: usize = 8;
-pub(crate) const OFFSET_GEOMETRY_RULE_VERSION: &str = "offset-local-loops-v3-outer-round-join";
+pub(crate) const OFFSET_GEOMETRY_RULE_VERSION: &str =
+    "offset-local-loops-v5-crossing-span-iterative-outer-round-join";
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -310,11 +312,11 @@ fn generate(request: Request, started: Instant) -> Result<Value, String> {
     let mut offsets = Vec::with_capacity(boundaries.len());
     let mut geometry_warnings = Vec::new();
     for offset in boundaries {
-        let (line, repair) = offset_line_with_local_repair(&points, offset, &cumulative)?;
+        let (line, repairs) = offset_line_with_local_repair(&points, offset, &cumulative)?;
         if line.rounded_join_count > 0 {
             geometry_warnings.push(offset_round_join_warning(offset, line.rounded_join_count));
         }
-        if let Some(repair) = repair {
+        for repair in repairs {
             geometry_warnings.push(offset_repair_warning(offset, repair));
         }
         offsets.push((offset, line.coordinates));
@@ -544,13 +546,14 @@ pub(crate) struct LocalLoopRepair {
     pub(crate) station_end_m: f64,
     pub(crate) crossing: [f64; 2],
     pub(crate) crossing_index: usize,
+    pub(crate) crossing_retained: bool,
 }
 
 pub(crate) fn offset_line_with_local_repair(
     points: &[Coord],
     offset: f64,
     cumulative: &[f64],
-) -> Result<(OffsetLine, Option<LocalLoopRepair>), String> {
+) -> Result<(OffsetLine, Vec<LocalLoopRepair>), String> {
     let output = offset_line_vertices(points, offset, cumulative)?;
     repair_offset_line(output, offset, cumulative)
 }
@@ -559,80 +562,85 @@ fn repair_offset_line(
     output: OffsetLine,
     offset: f64,
     cumulative: &[f64],
-) -> Result<(OffsetLine, Option<LocalLoopRepair>), String> {
-    let Some(intersection) = first_self_intersection(&output.coordinates, false) else {
-        return Ok((output, None));
-    };
-    let first = intersection.first_segment;
-    let second = intersection.second_segment;
-    let first_source = output.source_points[first];
-    let second_source = output.source_points[second];
-    let local_limit = offset.abs() * MAX_LOCAL_LOOP_OFFSET_FACTOR;
-    let (station_start, station_end) = intersection_stations(intersection, &output.stations);
-    let source_span = cumulative
-        .get(second_source + 1)
-        .zip(cumulative.get(first_source))
-        .map(|(end, start)| end - start)
-        .unwrap_or(f64::INFINITY);
-    if intersection.crossing.is_none()
-        || offset.abs() <= EPS
-        || second_source.saturating_sub(first_source) > MAX_LOCAL_LOOP_SOURCE_SEGMENTS
-        || !source_span.is_finite()
-        || source_span < -EPS
-        || source_span > local_limit
-    {
-        return Err(format!(
-            "offset boundary at {offset}m self-intersects between source segments {first_source} and {second_source} near estimated geometric mileages {station_start:.3}m and {station_end:.3}m; outside the local repair limit"
-        ));
-    }
+) -> Result<(OffsetLine, Vec<LocalLoopRepair>), String> {
+    let mut repaired = output;
+    let mut repairs: Vec<LocalLoopRepair> = Vec::new();
+    while let Some(intersection) = first_self_intersection(&repaired.coordinates, false) {
+        let first = intersection.first_segment;
+        let second = intersection.second_segment;
+        let first_source = repaired.source_points[first];
+        let second_source = repaired.source_points[second];
+        let local_limit = offset.abs() * MAX_LOCAL_LOOP_OFFSET_FACTOR;
+        let (station_start, station_end) = intersection_stations(intersection, &repaired.stations);
+        let source_range_exists =
+            cumulative.get(first_source).is_some() && cumulative.get(second_source + 1).is_some();
+        let estimated_crossing_span = station_end - station_start;
+        if intersection.crossing.is_none()
+            || offset.abs() <= EPS
+            || second_source.saturating_sub(first_source) > MAX_LOCAL_LOOP_SOURCE_SEGMENTS
+            || !source_range_exists
+            || !estimated_crossing_span.is_finite()
+            || estimated_crossing_span < -EPS
+            || estimated_crossing_span > local_limit
+        {
+            return Err(format!(
+                "offset boundary at {offset}m self-intersects between source segments {first_source} and {second_source} near estimated geometric mileages {station_start:.3}m and {station_end:.3}m; outside the local repair limit"
+            ));
+        }
+        if repairs.len() >= MAX_LOCAL_LOOP_REPAIRS {
+            return Err(format!(
+                "offset boundary at {offset}m needs more than {MAX_LOCAL_LOOP_REPAIRS} local loop trims; last crossing is between source segments {first_source} and {second_source} near estimated geometric mileages {station_start:.3}m and {station_end:.3}m"
+            ));
+        }
 
-    let crossing = intersection.crossing.unwrap();
-    let crossing_index = first + 1;
-    let mut repaired = OffsetLine {
-        coordinates: Vec::with_capacity(output.coordinates.len() - (second - first)),
-        stations: Vec::with_capacity(output.stations.len() - (second - first)),
-        source_points: Vec::with_capacity(output.source_points.len() - (second - first)),
-        rounded_join_count: output.rounded_join_count,
-    };
-    repaired
-        .coordinates
-        .extend_from_slice(&output.coordinates[..=first]);
-    repaired.coordinates.push(crossing.point);
-    repaired
-        .coordinates
-        .extend_from_slice(&output.coordinates[second + 1..]);
-    repaired
-        .stations
-        .extend_from_slice(&output.stations[..=first]);
-    repaired.stations.push(station_start);
-    repaired
-        .stations
-        .extend_from_slice(&output.stations[second + 1..]);
-    repaired
-        .source_points
-        .extend_from_slice(&output.source_points[..=first]);
-    repaired.source_points.push(first_source);
-    repaired
-        .source_points
-        .extend_from_slice(&output.source_points[second + 1..]);
-    if let Some(remaining) = first_self_intersection(&repaired.coordinates, false) {
-        return Err(format!(
-            "offset boundary at {offset}m still self-intersects between repaired segments {} and {} after local loop trimming (source segments {first_source} and {second_source})",
-            remaining.first_segment, remaining.second_segment
-        ));
-    }
+        let crossing = intersection.crossing.unwrap();
+        let crossing_index = first + 1;
+        let removed_count = second - first - 1;
+        let mut next = OffsetLine {
+            coordinates: Vec::with_capacity(repaired.coordinates.len() - removed_count),
+            stations: Vec::with_capacity(repaired.stations.len() - removed_count),
+            source_points: Vec::with_capacity(repaired.source_points.len() - removed_count),
+            rounded_join_count: repaired.rounded_join_count,
+        };
+        next.coordinates
+            .extend_from_slice(&repaired.coordinates[..=first]);
+        next.coordinates.push(crossing.point);
+        next.coordinates
+            .extend_from_slice(&repaired.coordinates[second + 1..]);
+        next.stations
+            .extend_from_slice(&repaired.stations[..=first]);
+        next.stations.push(station_start);
+        next.stations
+            .extend_from_slice(&repaired.stations[second + 1..]);
+        next.source_points
+            .extend_from_slice(&repaired.source_points[..=first]);
+        next.source_points.push(first_source);
+        next.source_points
+            .extend_from_slice(&repaired.source_points[second + 1..]);
 
-    Ok((
-        repaired,
-        Some(LocalLoopRepair {
+        // 后续修剪可能移动或删除先前交点，保持场景里程锚点与最终边界索引一致。
+        for repair in &mut repairs {
+            if repair.crossing_index <= first {
+                continue;
+            } else if repair.crossing_index > second {
+                repair.crossing_index -= second - first - 1;
+            } else {
+                repair.crossing_retained = false;
+            }
+        }
+        repairs.push(LocalLoopRepair {
             source_point_start: first_source,
             source_point_end: second_source + 1,
             station_start_m: station_start,
             station_end_m: station_end,
             crossing: crossing.point,
             crossing_index,
-        }),
-    ))
+            crossing_retained: true,
+        });
+        repaired = next;
+    }
+
+    Ok((repaired, repairs))
 }
 
 pub(crate) fn offset_repair_warning(offset: f64, repair: LocalLoopRepair) -> Value {
@@ -1020,6 +1028,80 @@ mod tests {
         .unwrap()
     }
 
+    fn hana_highway_request() -> Request {
+        #[derive(Deserialize)]
+        struct ProjectedFixture {
+            projection: String,
+            coordinates: Vec<[f64; 2]>,
+        }
+
+        let fixture: ProjectedFixture =
+            serde_json::from_str(include_str!("../tests/fixtures/hana-highway-32604.json"))
+                .unwrap();
+        assert_eq!(fixture.coordinates.len(), 228);
+        Request {
+            route_id: "osm-way-456494873".into(),
+            points: fixture.coordinates,
+            crs: Some(fixture.projection),
+            source: Some("OpenStreetMap API 0.6".into()),
+            scene_options: scene::SceneOptions::default(),
+            section: Section {
+                left_lanes: vec![3.5, 3.5],
+                right_lanes: vec![3.5, 3.5],
+                median_width: 1.5,
+                left_emergency_width: 2.5,
+                right_emergency_width: 2.5,
+                left_shoulder_width: 0.5,
+                right_shoulder_width: 0.5,
+                left_slope_width: 0.0,
+                right_slope_width: 0.0,
+            },
+        }
+    }
+
+    fn hana_highway_10_25_request() -> Request {
+        let mut request = hana_highway_request();
+        request.section.left_emergency_width = 0.0;
+        request.section.right_emergency_width = 0.0;
+        request.section.left_shoulder_width = 2.5;
+        request.section.right_shoulder_width = 2.5;
+        request
+    }
+
+    fn feature_by_component<'a>(
+        features: &'a [Value],
+        component: &str,
+        side: &str,
+        lane_index: Option<usize>,
+    ) -> &'a Value {
+        features
+            .iter()
+            .find(|feature| {
+                feature["properties"]["component"] == component
+                    && feature["properties"]["side"] == side
+                    && feature["properties"]["lane_index"].as_u64()
+                        == lane_index.map(|index| index as u64)
+            })
+            .unwrap_or_else(|| panic!("missing {component} {side} {lane_index:?} feature"))
+    }
+
+    fn ring_contains_boundary(feature: &Value, boundary: &[[f64; 2]]) -> bool {
+        let ring: Vec<[f64; 2]> =
+            serde_json::from_value(feature["geometry"]["coordinates"][0].clone()).unwrap();
+        ring.windows(boundary.len())
+            .any(|window| window == boundary)
+            || boundary
+                .iter()
+                .rev()
+                .copied()
+                .collect::<Vec<_>>()
+                .windows(boundary.len())
+                .any(|window| {
+                    ring.windows(window.len())
+                        .any(|ring_window| ring_window == window)
+                })
+    }
+
     #[test]
     fn straight_has_expected_width_area_and_adjacency() {
         let result = generate(request(vec![[0.0, 0.0], [100.0, 0.0]]), Instant::now()).unwrap();
@@ -1086,6 +1168,214 @@ mod tests {
             Instant::now(),
         );
         assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn hana_highway_default_template_generates_valid_adjacent_surfaces() {
+        let request = hana_highway_request();
+        let route: Vec<Coord> = request
+            .points
+            .iter()
+            .map(|point| Coord {
+                x: point[0],
+                y: point[1],
+            })
+            .collect();
+        let mut cumulative = vec![0.0];
+        for pair in route.windows(2) {
+            cumulative.push(cumulative.last().copied().unwrap() + distance(pair[0], pair[1]));
+        }
+        let result = generate(request, Instant::now()).unwrap();
+        assert_eq!(result["projected_crs"], "EPSG:32604");
+        assert_eq!(result["route_length_m"], 2272.648164874374);
+        assert_eq!(result["paved_width_m"], 20.0);
+        assert_eq!(result["platform_width_m"], 21.5);
+        assert_eq!(result["total_width_m"], 21.5);
+        assert_eq!(result["feature_count"], 9);
+
+        let features = result["feature_collection"]["features"].as_array().unwrap();
+        let widths = [
+            ("median", "center", None, 1.5, -0.75, 0.75),
+            ("lane", "left", Some(1), 3.5, 0.75, 4.25),
+            ("lane", "left", Some(2), 3.5, 4.25, 7.75),
+            ("lane", "right", Some(1), 3.5, -0.75, -4.25),
+            ("lane", "right", Some(2), 3.5, -4.25, -7.75),
+            ("emergency", "left", None, 2.5, 7.75, 10.25),
+            ("emergency", "right", None, 2.5, -7.75, -10.25),
+            ("shoulder", "left", None, 0.5, 10.25, 10.75),
+            ("shoulder", "right", None, 0.5, -10.25, -10.75),
+        ];
+        for (component, side, lane_index, width, inner_offset, outer_offset) in widths {
+            let feature = feature_by_component(features, component, side, lane_index);
+            assert_eq!(feature["properties"]["width_m"], width);
+            assert_eq!(feature["properties"]["route_id"], "osm-way-456494873");
+            let ring: Vec<[f64; 2]> =
+                serde_json::from_value(feature["geometry"]["coordinates"][0].clone()).unwrap();
+            assert!(polygon_area(&ring) > EPS);
+            assert!(!polygon_self_intersects(&ring));
+            let (inner, _) =
+                offset_line_with_local_repair(&route, inner_offset, &cumulative).unwrap();
+            let (outer, _) =
+                offset_line_with_local_repair(&route, outer_offset, &cumulative).unwrap();
+            assert!(
+                (distance(
+                    Coord {
+                        x: inner.coordinates[0][0],
+                        y: inner.coordinates[0][1],
+                    },
+                    Coord {
+                        x: outer.coordinates[0][0],
+                        y: outer.coordinates[0][1],
+                    },
+                ) - width)
+                    .abs()
+                    < 1.0e-8
+            );
+        }
+
+        let shared_boundaries = [
+            (
+                0.75,
+                feature_by_component(features, "median", "center", None),
+                feature_by_component(features, "lane", "left", Some(1)),
+            ),
+            (
+                -0.75,
+                feature_by_component(features, "median", "center", None),
+                feature_by_component(features, "lane", "right", Some(1)),
+            ),
+            (
+                4.25,
+                feature_by_component(features, "lane", "left", Some(1)),
+                feature_by_component(features, "lane", "left", Some(2)),
+            ),
+            (
+                -4.25,
+                feature_by_component(features, "lane", "right", Some(1)),
+                feature_by_component(features, "lane", "right", Some(2)),
+            ),
+            (
+                7.75,
+                feature_by_component(features, "lane", "left", Some(2)),
+                feature_by_component(features, "emergency", "left", None),
+            ),
+            (
+                -7.75,
+                feature_by_component(features, "lane", "right", Some(2)),
+                feature_by_component(features, "emergency", "right", None),
+            ),
+            (
+                10.25,
+                feature_by_component(features, "emergency", "left", None),
+                feature_by_component(features, "shoulder", "left", None),
+            ),
+            (
+                -10.25,
+                feature_by_component(features, "emergency", "right", None),
+                feature_by_component(features, "shoulder", "right", None),
+            ),
+        ];
+        for (offset, first, second) in shared_boundaries {
+            let (line, _) = offset_line_with_local_repair(&route, offset, &cumulative).unwrap();
+            assert!(ring_contains_boundary(first, &line.coordinates));
+            assert!(ring_contains_boundary(second, &line.coordinates));
+        }
+
+        let repairs: Vec<_> = result["geometry_warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|warning| warning["code"] == "offset_local_loop_trimmed")
+            .collect();
+        assert_eq!(repairs.len(), 5);
+        let source_ranges = |offset: f64| -> Vec<_> {
+            repairs
+                .iter()
+                .filter(|warning| warning["offset_m"] == offset)
+                .map(|warning| {
+                    (
+                        warning["source_point_start"].as_u64().unwrap(),
+                        warning["source_point_end"].as_u64().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(source_ranges(10.25), vec![(115, 121), (88, 91)]);
+        assert_eq!(source_ranges(10.75), vec![(147, 150), (115, 122), (88, 91)]);
+        assert!(repairs.iter().all(|warning| {
+            let station_start = warning["station_start_m"].as_f64().unwrap();
+            let station_end = warning["station_end_m"].as_f64().unwrap();
+            let source_point_start = warning["source_point_start"].as_u64().unwrap();
+            let source_point_end = warning["source_point_end"].as_u64().unwrap();
+            station_start < station_end
+                && station_end - station_start <= warning["offset_m"].as_f64().unwrap() * 4.0
+                && source_point_end - source_point_start <= 8
+        }));
+
+        let mut scene_request = hana_highway_request();
+        scene_request.scene_options = scene::SceneOptions {
+            enabled: vec!["lighting".into()],
+            spacing_m: 1_000.0,
+            offset_m: 0.0,
+            ..scene::SceneOptions::default()
+        };
+        let scene_result = generate(scene_request, Instant::now()).unwrap();
+        let lights = scene_result["ancillary_layers"][0]["collection"]["features"]
+            .as_array()
+            .unwrap();
+        assert_eq!(lights.len(), 8);
+        assert!(lights.iter().all(|feature| {
+            feature["geometry"]["coordinates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|coordinate| coordinate.as_f64().unwrap().is_finite())
+        }));
+    }
+
+    #[test]
+    fn hana_highway_10_25m_template_generates_without_losing_widths() {
+        let result = generate(hana_highway_10_25_request(), Instant::now()).unwrap();
+        assert_eq!(result["feature_count"], 7);
+        assert_eq!(result["paved_width_m"], 19.0);
+        assert_eq!(result["platform_width_m"], 20.5);
+        assert_eq!(result["total_width_m"], 20.5);
+        let features = result["feature_collection"]["features"].as_array().unwrap();
+        assert_eq!(
+            features
+                .iter()
+                .filter(|feature| feature["properties"]["component"] == "lane")
+                .count(),
+            4
+        );
+        assert_eq!(
+            features
+                .iter()
+                .filter(|feature| feature["properties"]["component"] == "median")
+                .count(),
+            1
+        );
+        assert_eq!(
+            features
+                .iter()
+                .filter(|feature| feature["properties"]["component"] == "shoulder")
+                .count(),
+            2
+        );
+        let repairs: Vec<_> = result["geometry_warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|warning| warning["code"] == "offset_local_loop_trimmed")
+            .collect();
+        assert_eq!(repairs.len(), 2);
+        assert!(repairs.iter().all(|warning| warning["offset_m"] == 10.25));
+        for feature in features {
+            let ring: Vec<[f64; 2]> =
+                serde_json::from_value(feature["geometry"]["coordinates"][0].clone()).unwrap();
+            assert!(polygon_area(&ring) > EPS);
+            assert!(!polygon_self_intersects(&ring));
+        }
     }
 
     #[test]
@@ -1276,8 +1566,8 @@ mod tests {
         }
         let source_stations = [0.0, 2.0, 4.0, 1_000.0, 1_000.0, 1_002.0, 1_004.0, 1_006.0];
 
-        let (repaired, Some(repair)) = repair_offset_line(combined, 3.0, &source_stations).unwrap()
-        else {
+        let (repaired, repairs) = repair_offset_line(combined, 3.0, &source_stations).unwrap();
+        let [repair] = repairs.as_slice() else {
             panic!("expanded input should contain one bounded local loop");
         };
         assert!(repair.crossing_index > prefix_route.len());
@@ -1501,11 +1791,12 @@ mod tests {
         let offset = 9.763_136_114_814_849;
         let raw = offset_line_vertices(&route, offset, &cumulative).unwrap();
         let loop_extent = first_self_intersection(&raw.coordinates, false).unwrap();
-        let (repaired, Some(_)) =
-            offset_line_with_local_repair(&route, offset, &cumulative).unwrap()
-        else {
-            panic!("test curve should produce a local loop repair");
-        };
+        let (repaired, repairs) =
+            offset_line_with_local_repair(&route, offset, &cumulative).unwrap();
+        assert!(
+            !repairs.is_empty(),
+            "test curve should produce a local loop repair"
+        );
         assert_eq!(repaired.coordinates.first(), raw.coordinates.first());
         assert_eq!(repaired.coordinates.last(), raw.coordinates.last());
         assert_eq!(
@@ -1540,9 +1831,33 @@ mod tests {
         for pair in route.windows(2) {
             cumulative.push(cumulative.last().copied().unwrap() + distance(pair[0], pair[1]));
         }
-        let error = offset_line_with_local_repair(&route, 3.9, &cumulative).unwrap_err();
+        let (repaired, repairs) = offset_line_with_local_repair(&route, 3.9, &cumulative).unwrap();
+        assert!(!repairs.is_empty());
+        assert!(first_self_intersection(&repaired.coordinates, false).is_none());
+        assert!(repairs.iter().all(|repair| {
+            repair.station_end_m - repair.station_start_m <= 3.9 * MAX_LOCAL_LOOP_OFFSET_FACTOR
+        }));
+
+        let mut dense_route = Vec::new();
+        for pair in route.windows(2) {
+            for step in 0..10 {
+                let fraction = step as f64 / 10.0;
+                dense_route.push(Coord {
+                    x: pair[0].x + (pair[1].x - pair[0].x) * fraction,
+                    y: pair[0].y + (pair[1].y - pair[0].y) * fraction,
+                });
+            }
+        }
+        dense_route.push(*route.last().unwrap());
+        let mut dense_cumulative = vec![0.0];
+        for pair in dense_route.windows(2) {
+            dense_cumulative
+                .push(dense_cumulative.last().copied().unwrap() + distance(pair[0], pair[1]));
+        }
+        let error =
+            offset_line_with_local_repair(&dense_route, 3.9, &dense_cumulative).unwrap_err();
         assert!(error.contains("outside the local repair limit"));
-        assert!(error.contains("source segments 1 and 3"));
+        assert!(error.contains("source segments"));
         assert!(error.contains("estimated geometric mileages"));
 
         let error = generate(

@@ -41,6 +41,7 @@ import maplibregl, {
   addProtocol,
   Map as MapLibreMap,
   MapMouseEvent,
+  type StyleSpecification,
 } from "maplibre-gl";
 import { invoke } from "@tauri-apps/api/core";
 import type * as GeoJSON from "geojson";
@@ -56,7 +57,7 @@ import {
   Box,
   Check,
   ChevronDown,
-  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   CloudOff,
   Copy,
@@ -76,6 +77,7 @@ import {
   PenLine,
   Pencil,
   Plus,
+  Redo2,
   RotateCcw,
   Save,
   Search,
@@ -84,7 +86,7 @@ import {
   Undo2,
   Upload,
   X,
-} from "lucide-react";
+} from "./Iconfont";
 import {
   acceptGeneration,
   basicCatalog,
@@ -156,7 +158,6 @@ import {
   type SourceBatchIssue,
 } from "./sourceBatch";
 import { generationChunks, reusableResults } from "./batchScheduling";
-import { Redo2, ChevronRight } from "lucide-react";
 import { NumericField, SpecificationForm } from "./EditorFields";
 import {
   EditorValidationProvider,
@@ -398,6 +399,7 @@ function Workbench() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const mapReady = useRef(false);
+  const loadedProjectFitRequest = useRef(0);
   const outputLayerIds = useRef<Set<string>>(new Set());
   const rasterLayerIds = useRef<Set<string>>(new Set());
   const vectorLayerIds = useRef<Set<string>>(new Set());
@@ -473,6 +475,8 @@ function Workbench() {
   const [showLeft, setShowLeft] = useState(() => readLayout().leftVisible);
   const [showRouteSummary, setShowRouteSummary] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const legendTriggerRef = useRef<HTMLButtonElement>(null);
+  const legendPopoverRef = useRef<HTMLDivElement>(null);
   const [templateEditor, setTemplateEditor] = useState<CatalogEntry | null>(
     null,
   );
@@ -573,6 +577,8 @@ function Workbench() {
   const [activeBasemap, setActiveBasemap] = useState<BasemapConfig | null>(
     null,
   );
+  const selectedBasemapRef = useRef<BasemapConfig | null>(null);
+  const basemapStyleRequest = useRef(0);
   const [basemapOpacity, setBasemapOpacity] = useState(1);
   const [mappingField, setMappingField] = useState("");
   const [contextMenu, setContextMenu] = useState<{
@@ -1052,10 +1058,42 @@ function Workbench() {
     project.output && project.output.input_version !== project.input_version,
   );
   const ready = project.route_points.length >= 2;
+  const isExampleProject = Boolean(
+    project.example_source && typeof project.example_source === "object",
+  );
   const lengthMeters = useMemo(
     () => lineLength(project.route_points),
     [project.route_points],
   );
+
+  useEffect(() => {
+    if (!showLegend) return;
+    const focusPopover = requestAnimationFrame(() =>
+      legendPopoverRef.current?.focus(),
+    );
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setShowLegend(false);
+      legendTriggerRef.current?.focus();
+    };
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !legendTriggerRef.current?.contains(target) &&
+        !legendPopoverRef.current?.contains(target)
+      )
+        setShowLegend(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => {
+      cancelAnimationFrame(focusPopover);
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+    };
+  }, [showLegend]);
 
   const showStartPage =
     !startDismissed &&
@@ -1107,6 +1145,44 @@ function Workbench() {
   };
   const setStatus = (text: string, tone: Status["tone"] = undefined) =>
     setStatusState({ text, tone });
+
+  function fitLoadedProjectAfterLayout() {
+    const map = mapRef.current;
+    if (!map) return;
+    const request = ++loadedProjectFitRequest.current;
+    const scheduleAfterLayout = () => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (
+            request !== loadedProjectFitRequest.current ||
+            mapRef.current !== map
+          )
+            return;
+          if (!mapReady.current) {
+            const onReady = () => {
+              map.off("load", onReady);
+              map.off("style.load", onReady);
+              scheduleAfterLayout();
+            };
+            map.on("load", onReady);
+            map.on("style.load", onReady);
+            return;
+          }
+          // 等侧栏显隐完成布局，再让 MapLibre 按新的画布尺寸计算相机范围。
+          map.resize();
+          requestAnimationFrame(() => {
+            if (
+              request === loadedProjectFitRequest.current &&
+              mapRef.current === map &&
+              mapReady.current
+            )
+              fitProject(map, projectRef.current);
+          });
+        }),
+      );
+    };
+    scheduleAfterLayout();
+  }
 
   useEffect(() => {
     let wasNarrow = window.innerWidth < 1180;
@@ -1877,6 +1953,11 @@ function Workbench() {
       facilityDisplayScale,
     ],
   );
+
+  const syncMapRef = useRef(syncMap);
+  useEffect(() => {
+    syncMapRef.current = syncMap;
+  }, [syncMap]);
 
   useEffect(() => {
     if (!mapNode.current || mapRef.current) return;
@@ -3031,12 +3112,14 @@ function Workbench() {
         normalized.vector_basemaps = backgrounds;
         normalized.legacy_file_basemaps_imported = failedLegacyVectors === 0;
       }
-      if (mapRef.current?.getLayer("user-xyz-layer"))
-        mapRef.current.removeLayer("user-xyz-layer");
-      if (mapRef.current?.getSource("user-xyz"))
-        mapRef.current.removeSource("user-xyz");
-      setActiveBasemap(null);
+      resetOnlineBasemap();
       setProject(normalized);
+      setSourceOpen(
+        !(
+          normalized.example_source &&
+          typeof normalized.example_source === "object"
+        ),
+      );
       projectRef.current = normalized;
       editRevisionRef.current += 1;
       savedRevisionRef.current = editRevisionRef.current;
@@ -3057,7 +3140,7 @@ function Workbench() {
       if (path) rememberProject(path);
       setStartDismissed(true);
       setSelectedFacility(null);
-      fitProject(mapRef.current, normalized);
+      fitLoadedProjectAfterLayout();
       setStatus(
         `已打开项目 · ${normalized.crs} · ${normalized.route_points.length} 个路线点${(data as any).schema_version === 1 ? " · 已从 schema 1 迁移" : ""}${failedRasters ? ` · ${failedRasters} 个底图未能载入，原始路径记录仍已保留` : ""}`,
         failedRasters ? "warn" : "ok",
@@ -4057,16 +4140,14 @@ function Workbench() {
     }
   }
 
-  function selectBasemap(config: BasemapConfig) {
-    const map = mapRef.current;
-    if (!map) return;
+  function removeOnlineRasterLayer(map: MapLibreMap) {
     if (map.getLayer("user-xyz-layer")) map.removeLayer("user-xyz-layer");
     if (map.getSource("user-xyz")) map.removeSource("user-xyz");
-    if (config.id === "none") {
-      setActiveBasemap(null);
-      setStatus("已切换为空白工程画布；本地影像可继续使用。", "ok");
-      return;
-    }
+  }
+
+  function addOnlineRasterLayer(map: MapLibreMap, config: BasemapConfig) {
+    if (config.id === "none" || config.sourceType === "style") return;
+    removeOnlineRasterLayer(map);
     map.addSource("user-xyz", {
       type: "raster",
       tiles: [config.url],
@@ -4083,10 +4164,142 @@ function Workbench() {
       },
       map.getStyle().layers?.find((layer) => layer.id !== "background")?.id,
     );
-    setActiveBasemap(config);
+  }
+
+  function replaceMapStyle(
+    map: MapLibreMap,
+    style: string | StyleSpecification,
+    request: number,
+  ) {
+    mapReady.current = false;
+    const timeout = window.setTimeout(() => {
+      const selected = selectedBasemapRef.current;
+      if (
+        request !== basemapStyleRequest.current ||
+        !selected ||
+        selected.sourceType !== "style" ||
+        map.isStyleLoaded()
+      )
+        return;
+      const fallbackRequest = ++basemapStyleRequest.current;
+      selectedBasemapRef.current = null;
+      setActiveBasemap(null);
+      setStatus(`矢量底图加载超时，已恢复离线画布：${selected.label}`, "warn");
+      map.once("style.load", () => {
+        if (
+          fallbackRequest !== basemapStyleRequest.current ||
+          mapRef.current !== map
+        )
+          return;
+        syncMapRef.current(map, projectRef.current);
+        mapReady.current = true;
+      });
+      map.setStyle(workbenchBaseStyle());
+    }, 20000);
+    map.once("style.load", () => {
+      window.clearTimeout(timeout);
+      if (request !== basemapStyleRequest.current || mapRef.current !== map)
+        return;
+      const selected = selectedBasemapRef.current;
+      if (selected && selected.id !== "none" && selected.sourceType !== "style")
+        addOnlineRasterLayer(map, selected);
+      try {
+        syncMapRef.current(map, projectRef.current);
+        mapReady.current = true;
+        setStatus(
+          selected?.sourceType === "style"
+            ? `底图已切换：${selected.label}；道路与工程图层已恢复。`
+            : selected
+              ? `底图已切换：${selected.label}；本地影像及工程图层已恢复。`
+              : "已切换为空白工程画布；本地影像及工程图层已恢复。",
+          "ok",
+        );
+      } catch (error) {
+        mapReady.current = false;
+        setStatus(
+          `底图切换后恢复工程图层失败：${errorMessage(error)}`,
+          "error",
+        );
+      }
+    });
+    try {
+      map.setStyle(style);
+    } catch (error) {
+      window.clearTimeout(timeout);
+      mapReady.current = true;
+      try {
+        syncMapRef.current(map, projectRef.current);
+      } catch {
+        mapReady.current = false;
+      }
+      setStatus(`底图样式无法加载：${errorMessage(error)}`, "error");
+    }
+  }
+
+  function workbenchBaseStyle() {
+    return {
+      version: 8 as const,
+      sources: {},
+      layers: [
+        {
+          id: "background",
+          type: "background" as const,
+          paint: { "background-color": "#edf2f6", "background-opacity": 0 },
+        },
+      ],
+    };
+  }
+
+  function resetOnlineBasemap() {
+    const map = mapRef.current;
+    const wasStyle = selectedBasemapRef.current?.sourceType === "style";
+    selectedBasemapRef.current = null;
+    setActiveBasemap(null);
+    const request = ++basemapStyleRequest.current;
+    if (!map) return;
+    if (wasStyle) replaceMapStyle(map, workbenchBaseStyle(), request);
+    else removeOnlineRasterLayer(map);
+  }
+
+  function selectBasemap(config: BasemapConfig) {
+    const map = mapRef.current;
+    if (!map) return;
+    const previous = selectedBasemapRef.current;
+    const request = ++basemapStyleRequest.current;
+    const selected = config.id === "none" ? null : config;
+    selectedBasemapRef.current = selected;
+    setActiveBasemap(selected);
     setShowBasemap(false);
+
+    if (config.sourceType === "style") {
+      if (!config.styleUrl) {
+        setStatus(
+          `底图 ${config.label} 缺少可加载的 MapLibre 样式地址。`,
+          "error",
+        );
+        return;
+      }
+      setStatus(`正在加载矢量底图：${config.label}…`);
+      replaceMapStyle(map, config.styleUrl, request);
+      return;
+    }
+
+    if (previous?.sourceType === "style") {
+      setStatus(
+        `正在切换底图：${config.id === "none" ? "离线画布" : config.label}…`,
+      );
+      replaceMapStyle(map, workbenchBaseStyle(), request);
+      return;
+    }
+
+    removeOnlineRasterLayer(map);
+    if (selected) addOnlineRasterLayer(map, selected);
+    if (!selected) {
+      setStatus("已切换为空白工程画布；本地影像可继续使用。", "ok");
+      return;
+    }
     setStatus(
-      `底图已切换：${config.label}${config.adapt ? " · GCJ-02 近似纠偏显示" : ""}；瓦片加载取决于网络与服务。`,
+      `底图已切换：${selected.label}${selected.adapt ? " · GCJ-02 近似纠偏显示" : ""}；瓦片加载取决于网络与服务。`,
       "ok",
     );
   }
@@ -4433,6 +4646,7 @@ function Workbench() {
     setMappingField("");
     setPanel("data");
     setShowLeft(true);
+    setSourceOpen(true);
     setStartDismissed(false);
     setStatus("新建空工程 · 选择导入、打开或绘制参考线。", "ok");
   }
@@ -4496,9 +4710,10 @@ function Workbench() {
       setStartDismissed(true);
       setPanel("data");
       setShowLeft(true);
+      setSourceOpen(false);
       setRoadState("empty");
       setToolMode("pan");
-      fitProject(mapRef.current, next);
+      fitLoadedProjectAfterLayout();
       setStatus(
         `已载入${example.title} · 真实 OSM 道路；参考线类型与模板断面待核验。`,
         "warn",
@@ -4508,10 +4723,7 @@ function Workbench() {
     }
   }
   function clearBasemaps() {
-    const map = mapRef.current;
-    if (map?.getLayer("user-xyz-layer")) map.removeLayer("user-xyz-layer");
-    if (map?.getSource("user-xyz")) map.removeSource("user-xyz");
-    setActiveBasemap(null);
+    resetOnlineBasemap();
     update((current) => ({
       ...current,
       rasters: [],
@@ -4994,13 +5206,13 @@ function Workbench() {
             <button
               className="rail-item"
               aria-label={showLeft ? "折叠工具面板" : "展开工具面板"}
+              data-testid="left-panel-toggle"
               onClick={() => setShowLeft((value) => !value)}
             >
-              {showLeft ? (
-                <ChevronLeft size={19} />
-              ) : (
-                <ChevronRight size={19} />
-              )}
+              <span
+                className={`panel-fold-symbol ${showLeft ? "is-open" : "is-collapsed"}`}
+                aria-hidden="true"
+              />
               <span>{showLeft ? "收起" : "展开"}</span>
             </button>
           </div>
@@ -5041,7 +5253,7 @@ function Workbench() {
               aria-label="收起当前工作面板"
               onClick={() => setShowLeft(false)}
             >
-              <ChevronLeft size={17} />
+              <span className="panel-fold-symbol is-open" aria-hidden="true" />
             </button>
           </div>
           {panel === "data" && (
@@ -5132,6 +5344,7 @@ function Workbench() {
               primarySource={
                 <details
                   className="data-tool-details data-source-primary"
+                  data-testid="workbench-source-entry"
                   open={sourceOpen}
                   onToggle={(event) => setSourceOpen(event.currentTarget.open)}
                 >
@@ -5147,7 +5360,9 @@ function Workbench() {
                       }
                     }}
                   >
-                    <span>路线数据</span>
+                    <span>
+                      {isExampleProject ? "导入其他路线或数据" : "路线数据"}
+                    </span>
                     <ChevronDown size={16} />
                   </summary>
                   <div
@@ -5217,121 +5432,170 @@ function Workbench() {
                 </details>
               }
               sourceSummary={
-                <SourceDatasetManager
-                  generationDisabledReason={
-                    hasInvalidFields
-                      ? "请先修正表单中标记的无效数值"
-                      : undefined
-                  }
-                  datasets={sourceDatasets}
-                  working={working}
-                  progress={batchProgress}
-                  generatedCounts={generatedCounts}
-                  onAppend={() => {
-                    setSourceOpen(true);
-                    setPanel("data");
-                    setStatus(
-                      "在上方路线数据入口继续选择记录；同一来源将自动追加并去重。",
-                    );
-                  }}
-                  onGenerate={() => void generateAllSources()}
-                  onCancel={() => void cancelGenerate()}
-                  onRemoveDataset={(id) => {
-                    update((current) => ({
-                      ...current,
-                      vector_basemaps: (
-                        (current.vector_basemaps as any[]) ?? []
-                      ).filter((layer) => layer.id !== id),
-                      ...((current.active_source_ref as any)?.dataset_id === id
-                        ? {
-                            active_source_ref: undefined,
-                            route_points: [],
-                            output: null,
-                          }
-                        : {}),
-                    }));
-                    setStatus(
-                      "已移除工程中的来源数据及其成果；未修改原文件或数据库，可撤销。",
-                      "ok",
-                    );
-                  }}
-                  onRemoveFeatures={(id, keys) => {
-                    update((current) => {
-                      const active = current.active_source_ref as
-                        | { dataset_id: string; feature_key: string }
-                        | undefined;
-                      const next = {
+                isExampleProject && sourceDatasets.length === 0 ? (
+                  <section
+                    className="example-source-card"
+                    aria-label="示例路线来源"
+                    data-testid="example-source-panel"
+                  >
+                    <div className="example-source-card__heading">
+                      <MapPinned size={16} aria-hidden="true" />
+                      <strong>
+                        {String(
+                          (project.example_source as Record<string, unknown>)
+                            .title ?? project.route_id,
+                        )}
+                      </strong>
+                    </div>
+                    <p>
+                      真实 OpenStreetMap
+                      道路线数据；参考线类型和横断面参数待人工核验。
+                    </p>
+                    <small>
+                      {String(
+                        (project.example_source as Record<string, unknown>)
+                          .attribution ?? "OpenStreetMap",
+                      )}
+                    </small>
+                    <button
+                      type="button"
+                      className="button outline full"
+                      onClick={() => {
+                        setSourceOpen(true);
+                        requestAnimationFrame(() => {
+                          document
+                            .querySelector<HTMLDetailsElement>(
+                              '[data-testid="workbench-source-entry"]',
+                            )
+                            ?.scrollIntoView({ block: "nearest" });
+                        });
+                      }}
+                      aria-label="显示数据加载入口"
+                      data-testid="example-import-entry"
+                    >
+                      <FolderOpen size={15} aria-hidden="true" />
+                      导入其他数据…
+                    </button>
+                  </section>
+                ) : (
+                  <SourceDatasetManager
+                    generationDisabledReason={
+                      hasInvalidFields
+                        ? "请先修正表单中标记的无效数值"
+                        : undefined
+                    }
+                    datasets={sourceDatasets}
+                    working={working}
+                    progress={batchProgress}
+                    generatedCounts={generatedCounts}
+                    onAppend={() => {
+                      setSourceOpen(true);
+                      setPanel("data");
+                      setStatus(
+                        "在上方路线数据入口继续选择记录；同一来源将自动追加并去重。",
+                      );
+                    }}
+                    onGenerate={() => void generateAllSources()}
+                    onCancel={() => void cancelGenerate()}
+                    onRemoveDataset={(id) => {
+                      update((current) => ({
                         ...current,
                         vector_basemaps: (
                           (current.vector_basemaps as any[]) ?? []
-                        ).map((layer) =>
-                          layer.id === id
-                            ? removeDatasetFeatures(
-                                normalizeSourceDatasets(
-                                  [layer],
-                                  sourceDefaults(current),
-                                )[0],
-                                keys,
-                              )
-                            : layer,
-                        ),
-                        ...(active?.dataset_id === id &&
-                        keys.includes(active.feature_key)
+                        ).filter((layer) => layer.id !== id),
+                        ...((current.active_source_ref as any)?.dataset_id ===
+                        id
                           ? {
                               active_source_ref: undefined,
                               route_points: [],
                               output: null,
                             }
                           : {}),
-                      };
-                      return retainUnchangedSourceResults(current, next, id);
-                    });
-                    setStatus(
-                      "已从工程移除所选记录；原始数据不受影响，可撤销。",
-                      "ok",
-                    );
-                  }}
-                  onSetIncluded={(id, keys, included) =>
-                    editSourceDataset(
-                      id,
-                      (dataset) => setDatasetIncluded(dataset, keys, included),
-                      true,
-                    )
-                  }
-                  onEditFeature={(id, key) => {
-                    const dataset = sourceDatasets.find(
-                      (item) => item.id === id,
-                    );
-                    const index = dataset?.feature_keys.indexOf(key) ?? -1;
-                    if (dataset && index >= 0)
-                      void selectSourceFeature(
-                        dataset.collection.features[index],
-                        dataset.source_label,
-                        dataset.binding ?? undefined,
-                        dataset.fields,
-                        id,
-                        undefined,
-                        key,
+                      }));
+                      setStatus(
+                        "已移除工程中的来源数据及其成果；未修改原文件或数据库，可撤销。",
+                        "ok",
                       );
-                  }}
-                  onConfigureMapping={setMappingDatasetId}
-                  onLocateDataset={(id) => {
-                    const dataset = sourceDatasets.find(
-                      (item) => item.id === id,
-                    );
-                    if (dataset)
-                      try {
-                        fitBounds(
-                          mapRef.current,
-                          routeSourceCollection(
-                            dataset.collection.features as RouteFeature[],
-                          ).bounds,
+                    }}
+                    onRemoveFeatures={(id, keys) => {
+                      update((current) => {
+                        const active = current.active_source_ref as
+                          | { dataset_id: string; feature_key: string }
+                          | undefined;
+                        const next = {
+                          ...current,
+                          vector_basemaps: (
+                            (current.vector_basemaps as any[]) ?? []
+                          ).map((layer) =>
+                            layer.id === id
+                              ? removeDatasetFeatures(
+                                  normalizeSourceDatasets(
+                                    [layer],
+                                    sourceDefaults(current),
+                                  )[0],
+                                  keys,
+                                )
+                              : layer,
+                          ),
+                          ...(active?.dataset_id === id &&
+                          keys.includes(active.feature_key)
+                            ? {
+                                active_source_ref: undefined,
+                                route_points: [],
+                                output: null,
+                              }
+                            : {}),
+                        };
+                        return retainUnchangedSourceResults(current, next, id);
+                      });
+                      setStatus(
+                        "已从工程移除所选记录；原始数据不受影响，可撤销。",
+                        "ok",
+                      );
+                    }}
+                    onSetIncluded={(id, keys, included) =>
+                      editSourceDataset(
+                        id,
+                        (dataset) =>
+                          setDatasetIncluded(dataset, keys, included),
+                        true,
+                      )
+                    }
+                    onEditFeature={(id, key) => {
+                      const dataset = sourceDatasets.find(
+                        (item) => item.id === id,
+                      );
+                      const index = dataset?.feature_keys.indexOf(key) ?? -1;
+                      if (dataset && index >= 0)
+                        void selectSourceFeature(
+                          dataset.collection.features[index],
+                          dataset.source_label,
+                          dataset.binding ?? undefined,
+                          dataset.fields,
+                          id,
+                          undefined,
+                          key,
                         );
-                      } catch (error) {
-                        setStatus(errorMessage(error), "error");
-                      }
-                  }}
-                />
+                    }}
+                    onConfigureMapping={setMappingDatasetId}
+                    onLocateDataset={(id) => {
+                      const dataset = sourceDatasets.find(
+                        (item) => item.id === id,
+                      );
+                      if (dataset)
+                        try {
+                          fitBounds(
+                            mapRef.current,
+                            routeSourceCollection(
+                              dataset.collection.features as RouteFeature[],
+                            ).bounds,
+                          );
+                        } catch (error) {
+                          setStatus(errorMessage(error), "error");
+                        }
+                    }}
+                  />
+                )
               }
               extras={
                 <>
@@ -5634,28 +5898,34 @@ function Workbench() {
               children={
                 <section className="section-block">
                   <h3>底图管理</h3>
-                  {activeBasemap && (
-                    <label className="background-opacity">
-                      {activeBasemap.label}
-                      <input
-                        aria-label="在线底图不透明度"
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={basemapOpacity}
-                        onChange={(event) => {
-                          const opacity = Number(event.target.value);
-                          setBasemapOpacity(opacity);
-                          if (mapRef.current?.getLayer("user-xyz-layer"))
-                            mapRef.current.setPaintProperty(
-                              "user-xyz-layer",
-                              "raster-opacity",
-                              opacity,
-                            );
-                        }}
-                      />
-                    </label>
+                  {activeBasemap?.sourceType === "style" ? (
+                    <p className="basemap-style-opacity-note">
+                      矢量底图使用服务预设样式，透明度由样式控制。
+                    </p>
+                  ) : (
+                    activeBasemap && (
+                      <label className="background-opacity">
+                        {activeBasemap.label}
+                        <input
+                          aria-label="在线底图不透明度"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={basemapOpacity}
+                          onChange={(event) => {
+                            const opacity = Number(event.target.value);
+                            setBasemapOpacity(opacity);
+                            if (mapRef.current?.getLayer("user-xyz-layer"))
+                              mapRef.current.setPaintProperty(
+                                "user-xyz-layer",
+                                "raster-opacity",
+                                opacity,
+                              );
+                          }}
+                        />
+                      </label>
+                    )
                   )}
                   <button
                     className="button outline full"
@@ -5986,6 +6256,83 @@ function Workbench() {
               >
                 <Move3D size={16} />
               </button>
+              <div className="map-legend-control">
+                <button
+                  ref={legendTriggerRef}
+                  type="button"
+                  className={`map-action map-legend-toggle ${showLegend ? "selected" : ""}`}
+                  aria-label="切换图例"
+                  aria-expanded={showLegend}
+                  aria-controls="map-legend-popover"
+                  aria-pressed={showLegend}
+                  title="地图图例"
+                  onClick={() => setShowLegend((value) => !value)}
+                  data-testid="map-legend-toggle"
+                >
+                  <Layers3 size={16} />
+                  <span>图例</span>
+                </button>
+                <div
+                  ref={legendPopoverRef}
+                  id="map-legend-popover"
+                  className="map-legend-popover"
+                  role="region"
+                  aria-label="地图图例"
+                  tabIndex={-1}
+                  hidden={!showLegend}
+                  data-testid="map-legend-popover"
+                >
+                  <div className="map-legend-popover__heading">
+                    <strong>图例</strong>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="关闭地图图例"
+                      onClick={() => {
+                        setShowLegend(false);
+                        legendTriggerRef.current?.focus();
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {layerVisible.route && ready && (
+                    <div>
+                      <span className="legend-line" />
+                      参考线
+                    </div>
+                  )}
+                  {layerVisible.generated && layers.length > 0 && (
+                    <div>
+                      <span className="legend-road" />
+                      道路成果
+                    </div>
+                  )}
+                  {layerVisible.facilities &&
+                    project.manual_facilities.length > 0 && (
+                      <div>
+                        <span className="legend-point" />
+                        设施 ·{" "}
+                        {
+                          project.manual_facilities.filter(
+                            (item) => !item.confirmed,
+                          ).length
+                        }{" "}
+                        待核验
+                      </div>
+                    )}
+                  {layerVisible.raster &&
+                    (project.rasters?.length ?? 0) > 0 && (
+                      <div>
+                        <span className="swatch green" />
+                        本地影像
+                      </div>
+                    )}
+                  {!ready && !project.manual_facilities.length && (
+                    <div>暂无可见成果</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           {showBasemap && (
@@ -6001,20 +6348,8 @@ function Workbench() {
             />
           )}
           <div className="map-overlays" style={{ top: mapOverlayTop }}>
-            <div
-              className={`route-map-card ${showRouteSummary ? "" : "compact"}`}
-            >
-              <button
-                className="route-summary-toggle"
-                aria-label="切换路线摘要"
-                aria-expanded={showRouteSummary}
-                onClick={() => setShowRouteSummary((value) => !value)}
-              >
-                <Baseline size={15} />
-                <strong>{project.route_id || "未命名路线"}</strong>
-                <ChevronDown size={13} />
-              </button>
-              {showRouteSummary && (
+            {showRouteSummary && (
+              <div className="route-map-card" data-testid="route-map-summary">
                 <>
                   <div className="route-card-top">
                     <span className="route-symbol">
@@ -6053,57 +6388,8 @@ function Workbench() {
                     </div>
                   </div>
                 </>
-              )}{" "}
-            </div>
-            <div className="legend-card">
-              <button
-                className="legend-title"
-                aria-expanded={showLegend}
-                aria-label="切换图例"
-                onClick={() => setShowLegend((value) => !value)}
-              >
-                图例 <ChevronDown size={13} />
-              </button>
-              {showLegend && (
-                <>
-                  {layerVisible.route && ready && (
-                    <div>
-                      <span className="legend-line" />
-                      参考线
-                    </div>
-                  )}
-                  {layerVisible.generated && layers.length > 0 && (
-                    <div>
-                      <span className="legend-road" />
-                      道路成果
-                    </div>
-                  )}
-                  {layerVisible.facilities &&
-                    project.manual_facilities.length > 0 && (
-                      <div>
-                        <span className="legend-point" />
-                        设施 ·{" "}
-                        {
-                          project.manual_facilities.filter(
-                            (item) => !item.confirmed,
-                          ).length
-                        }{" "}
-                        待核验
-                      </div>
-                    )}
-                  {layerVisible.raster &&
-                    (project.rasters?.length ?? 0) > 0 && (
-                      <div>
-                        <span className="swatch green" />
-                        本地影像
-                      </div>
-                    )}
-                  {!ready && !project.manual_facilities.length && (
-                    <div>暂无可见成果</div>
-                  )}
-                </>
-              )}
-            </div>
+              </div>
+            )}
             {tool !== "pan" && (
               <div className="drawing-hint">
                 <PenLine size={15} />

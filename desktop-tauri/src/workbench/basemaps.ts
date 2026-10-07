@@ -8,7 +8,8 @@ export type BasemapConfig = {
   maxZoom: number;
   displayCrs: "WGS84" | "GCJ-02";
   adapt?: "gcj02";
-  sourceType?: "xyz" | "wms";
+  sourceType?: "xyz" | "wms" | "style";
+  styleUrl?: string;
   group?: string;
   coverage?: string;
   updateInfo?: string;
@@ -168,6 +169,41 @@ export const BASEMAP_PRESETS: Preset[] = [
       "突出道路与法语地名的街道地图，可放大到 zoom 20；不是正射影像或测量底图。",
     note: "OSM France 法语街道样式；需在地图上清晰显示 OSM 与 OSM France 署名，并遵守服务使用条件。",
     docs: "https://wiki.openstreetmap.org/wiki/FR:Serveurs/tile.openstreetmap.fr",
+  },
+  {
+    id: "opentopomap",
+    label: "OpenTopoMap · 地形",
+    url: "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attribution:
+      'Kartendaten: © <a href="https://osm.org/copyright">OpenStreetMap-Mitwirkende</a>, SRTM | Kartendarstellung: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    maxZoom: 17,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "全球与开放数据",
+    coverage: "全球 OpenStreetMap 与 SRTM 数据覆盖区。",
+    updateInfo: "官方说明数据总体为最新；部分地图区域可能最多滞后约 4 周。",
+    detail:
+      "地形渲染突出等高线、阴影和道路等级；适合地形与道路网络背景查看，不是正射影像。",
+    note: "OpenTopoMap 栅格瓦片公开可用；地图需显示 OpenStreetMap、SRTM 和 OpenTopoMap 署名。CC BY-SA 要求保持相同方式共享；服务不保证可用，避免大量下载。",
+    docs: "https://dev.opentopomap.org/about",
+  },
+  {
+    id: "openfreemap-liberty",
+    label: "OpenFreeMap · Liberty 矢量",
+    url: "https://tiles.openfreemap.org/styles/liberty",
+    styleUrl: "https://tiles.openfreemap.org/styles/liberty",
+    attribution:
+      '© <a href="https://openfreemap.org/">OpenFreeMap</a> · © <a href="https://openmaptiles.org/">OpenMapTiles</a> · © <a href="https://osm.org/copyright">OpenStreetMap contributors</a>',
+    maxZoom: 14,
+    displayCrs: "WGS84",
+    sourceType: "style",
+    group: "全球与开放数据",
+    coverage: "全球 OpenStreetMap 数据覆盖区。",
+    updateInfo: "OpenFreeMap 每周发布全星球矢量数据。",
+    detail:
+      "MapLibre style JSON 加载的矢量街道图；瓦片源 zoom 0–14，显示道路、地名和地物，不是影像或测量底图。",
+    note: "OpenFreeMap 官方 MapLibre 样式，无令牌、免注册；样式会加载其公开矢量瓦片、字体与 sprite 资源，使用 MapLibre AttributionControl 保留自动署名。服务无 SLA。",
+    docs: "https://openfreemap.org/quick_start/",
   },
   {
     id: "nasa-gibs",
