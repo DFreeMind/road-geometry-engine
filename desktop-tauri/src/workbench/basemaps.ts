@@ -16,25 +16,12 @@ export type BasemapConfig = {
   detail?: string;
 };
 
-type Preset = BasemapConfig & { note: string; docs: string };
+export type BasemapPreset = BasemapConfig & { note: string; docs: string };
 
 const esriAttribution =
   "© Esri, Vantor, Earthstar Geographics, GIS User Community";
 
-export const BASEMAP_PRESETS: Preset[] = [
-  {
-    id: "amap-street",
-    label: "高德街道",
-    url: "gcj://amap-street/{z}/{x}/{y}",
-    attribution: '<a href="https://lbs.amap.com/">© 高德地图</a>',
-    maxZoom: 18,
-    displayCrs: "GCJ-02",
-    adapt: "gcj02",
-    sourceType: "xyz",
-    group: "中国地图",
-    note: "高德街道瓦片使用 GCJ-02，显示时按网格近似纠偏到 WGS84；只请求地图当前需要的瓦片。",
-    docs: "https://lbs.amap.com/api/javascript-api-v2/guide/abc/basetype",
-  },
+export const BASEMAP_PRESETS: BasemapPreset[] = [
   {
     id: "amap-satellite",
     label: "高德卫星",
@@ -44,57 +31,26 @@ export const BASEMAP_PRESETS: Preset[] = [
     displayCrs: "GCJ-02",
     adapt: "gcj02",
     sourceType: "xyz",
-    group: "中国地图",
-    note: "高德卫星瓦片使用 GCJ-02，显示时按网格近似纠偏到 WGS84；只请求地图当前需要的瓦片。",
+    group: "卫星与航空影像",
+    coverage: "中国为主",
+    updateInfo: "拍摄日期随地区变化，服务不标示单瓦片日期",
+    detail: "卫星影像，适合查看道路与周边地物",
+    note: "卫星影像；使用高德 GCJ-02 瓦片并在显示时近似纠偏。",
     docs: "https://lbs.amap.com/api/javascript-api-v2/guide/layers/official-layers",
   },
   {
     id: "esri-public",
-    label: "Esri 卫星 · 公开浏览",
+    label: "Esri 全球影像",
     url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: esriAttribution,
     maxZoom: 19,
     displayCrs: "WGS84",
     sourceType: "xyz",
-    group: "Esri",
-    note: "公开 ArcGIS 瓦片服务，按 Esri 和数据提供者条款浏览；服务可用性与覆盖范围无保证。",
-    docs: "https://developers.arcgis.com/rest/basemap-styles/service-data/",
-  },
-  {
-    id: "esri-clarity",
-    label: "Esri 卫星 · Clarity",
-    url: "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      "© Esri, Vantor, Earthstar Geographics, IGN, GIS User Community",
-    maxZoom: 19,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "Esri",
-    note: "Esri Clarity 影像公开浏览入口；按服务条款使用，不提供批量下载。",
-    docs: "https://developers.arcgis.com/rest/basemap-styles/service-data/",
-  },
-  {
-    id: "esri-hillshade",
-    label: "Esri 地形晕渲",
-    url: "https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
-    attribution: "© Esri · World Hillshade / 数据提供者",
-    maxZoom: 16,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "Esri",
-    note: "Esri World Hillshade 公开浏览瓦片；按服务条款使用。",
-    docs: "https://developers.arcgis.com/rest/services-reference/enterprise/map-service/",
-  },
-  {
-    id: "esri-token",
-    label: "Esri 卫星 · 令牌",
-    url: "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token={token}",
-    attribution: esriAttribution,
-    maxZoom: 19,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "Esri",
-    note: "粘贴具有 World Imagery 访问权限的 ArcGIS 令牌。令牌只存在本次界面会话内，不写入项目或本地存储。",
+    group: "卫星与航空影像",
+    coverage: "全球；分辨率因地区而异",
+    updateInfo: "影像日期随地区变化，服务不标示单瓦片日期",
+    detail: "多来源卫星与航空影像，适合道路及周边目视核对",
+    note: "公开浏览服务；须保留署名并遵守数据提供方条款，影像日期和细节因地区而异。",
     docs: "https://developers.arcgis.com/rest/basemap-styles/service-data/",
   },
   {
@@ -106,14 +62,11 @@ export const BASEMAP_PRESETS: Preset[] = [
     maxZoom: 19,
     displayCrs: "WGS84",
     sourceType: "xyz",
-    group: "开放影像",
-    coverage:
-      "美国；不同地区与缩放级别使用不同影像来源，非全境均有同等高分辨率。",
-    updateInfo:
-      "服务元数据显示影像数据于 2024-06 刷新；具体区域的航摄日期各异。",
-    detail:
-      "高分辨率正射影像适合美国道路位置与周边环境目视检查；不可替代测量控制或现场核验。",
-    note: "The National Map 影像瓦片公开且免费；美国本土常见 NAIP 正射影像约 1m，城市局部有更高分辨率影像。美国之外覆盖或细节可能不同。",
+    group: "卫星与航空影像",
+    coverage: "美国；覆盖与分辨率因地区而异",
+    updateInfo: "影像日期随地区变化，服务不标示单瓦片日期",
+    detail: "正射影像，适合道路与周边环境目视核对",
+    note: "公开影像服务；美国之外的覆盖和细节可能不同，不能替代测量或现场核验。",
     docs: "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
   },
   {
@@ -125,67 +78,44 @@ export const BASEMAP_PRESETS: Preset[] = [
     maxZoom: 19,
     displayCrs: "WGS84",
     sourceType: "xyz",
-    group: "开放影像",
-    coverage: "法国本土及部分海外领土；具体影像覆盖随区域而变。",
-    updateInfo:
-      "BD ORTHO 分区更新；官方产品说明的采集影像平均约 3 年、最长约 5 年，单个瓦片的拍摄年份未知。",
-    detail:
-      "航空正射影像，适合道路和地物目视核对；实际分辨率与拍摄年代依区域而变。",
-    note: "IGN Géoplateforme 正射影像 WMTS，无需令牌；BD ORTHO 产品使用 Etalab 开放许可并需保留署名。瓦片服务可用性不保证。",
+    group: "卫星与航空影像",
+    coverage: "法国本土及部分海外领土",
+    updateInfo: "分区更新，单瓦片拍摄日期未知",
+    detail: "航空正射影像，分辨率和拍摄年代随地区变化",
+    note: "公开 WMTS 服务；需保留 IGN 署名并遵守开放许可。",
     docs: "https://geoservices.ign.fr/sites/default/files/2022-10/IGNF_BDORTHOr_2-0.html",
   },
   {
-    id: "osmfr-hot",
-    label: "OSM France · 人道主义街道",
-    url: "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+    id: "amap-street",
+    label: "高德街道",
+    url: "gcj://amap-street/{z}/{x}/{y}",
+    attribution: '<a href="https://lbs.amap.com/">© 高德地图</a>',
+    maxZoom: 18,
+    displayCrs: "GCJ-02",
+    adapt: "gcj02",
+    sourceType: "xyz",
+    group: "街道与路网",
+    coverage: "中国为主",
+    updateInfo: "地图数据日期随地区和图层变化",
+    detail: "道路、地名和地物标注",
+    note: "街道地图；使用高德 GCJ-02 瓦片并在显示时近似纠偏。",
+    docs: "https://lbs.amap.com/api/javascript-api-v2/guide/abc/basetype",
+  },
+  {
+    id: "osm",
+    label: "OpenStreetMap 街道",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution:
-      'Données © <a href="https://osm.org/copyright">OpenStreetMap</a> / ODbL · rendu <a href="https://hot.openstreetmap.org/">Humanitarian OpenStreetMap Team</a>',
+      '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>',
     maxZoom: 19,
     displayCrs: "WGS84",
     sourceType: "xyz",
-    group: "全球与开放数据",
-    coverage: "全球 OpenStreetMap 数据覆盖区。",
-    updateInfo:
-      "底层数据库约每 5 分钟更新；低 zoom 的缓存瓦片每周更新，高 zoom 瓦片按请求或更新需求生成。",
-    detail:
-      "街道地图强调道路与人道救援相关 POI；适合道路网络背景核对，不是正射影像或测量底图。",
-    note: "OSM France 提供的 HOT 街道样式，需在地图上清晰显示 OSM 与 HOT 署名；遵守服务使用条件，避免批量请求。",
-    docs: "https://wiki.openstreetmap.org/wiki/FR:Serveurs/tile.openstreetmap.fr",
-  },
-  {
-    id: "osmfr",
-    label: "OSM France · 法语街道",
-    url: "https://a.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
-    attribution:
-      'Données © <a href="https://osm.org/copyright">OpenStreetMap</a> / ODbL · rendu <a href="https://openstreetmap.fr/">OSM France</a>',
-    maxZoom: 20,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "全球与开放数据",
-    coverage: "全球 OpenStreetMap 数据覆盖区；样式与地名主要面向法语使用者。",
-    updateInfo:
-      "底层数据库约每 5 分钟更新；zoom 0–12 缓存瓦片每周更新，高 zoom 瓦片按请求或更新需求生成。",
-    detail:
-      "突出道路与法语地名的街道地图，可放大到 zoom 20；不是正射影像或测量底图。",
-    note: "OSM France 法语街道样式；需在地图上清晰显示 OSM 与 OSM France 署名，并遵守服务使用条件。",
-    docs: "https://wiki.openstreetmap.org/wiki/FR:Serveurs/tile.openstreetmap.fr",
-  },
-  {
-    id: "opentopomap",
-    label: "OpenTopoMap · 地形",
-    url: "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attribution:
-      'Kartendaten: © <a href="https://osm.org/copyright">OpenStreetMap-Mitwirkende</a>, SRTM | Kartendarstellung: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
-    maxZoom: 17,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "全球与开放数据",
-    coverage: "全球 OpenStreetMap 与 SRTM 数据覆盖区。",
-    updateInfo: "官方说明数据总体为最新；部分地图区域可能最多滞后约 4 周。",
-    detail:
-      "地形渲染突出等高线、阴影和道路等级；适合地形与道路网络背景查看，不是正射影像。",
-    note: "OpenTopoMap 栅格瓦片公开可用；地图需显示 OpenStreetMap、SRTM 和 OpenTopoMap 署名。CC BY-SA 要求保持相同方式共享；服务不保证可用，避免大量下载。",
-    docs: "https://dev.opentopomap.org/about",
+    group: "街道与路网",
+    coverage: "全球 OpenStreetMap 数据覆盖区",
+    updateInfo: "地图数据持续更新，瓦片按服务策略缓存",
+    detail: "道路、地名和地物标注",
+    note: "遵循 OSM 瓦片政策并保留可见署名；仅用于当前视口交互浏览。",
+    docs: "https://operations.osmfoundation.org/policies/tiles/",
   },
   {
     id: "openfreemap-liberty",
@@ -197,66 +127,50 @@ export const BASEMAP_PRESETS: Preset[] = [
     maxZoom: 14,
     displayCrs: "WGS84",
     sourceType: "style",
-    group: "全球与开放数据",
-    coverage: "全球 OpenStreetMap 数据覆盖区。",
-    updateInfo: "OpenFreeMap 每周发布全星球矢量数据。",
-    detail:
-      "MapLibre style JSON 加载的矢量街道图；瓦片源 zoom 0–14，显示道路、地名和地物，不是影像或测量底图。",
-    note: "OpenFreeMap 官方 MapLibre 样式，无令牌、免注册；样式会加载其公开矢量瓦片、字体与 sprite 资源，使用 MapLibre AttributionControl 保留自动署名。服务无 SLA。",
+    group: "街道与路网",
+    coverage: "全球 OpenStreetMap 数据覆盖区",
+    updateInfo: "矢量数据按服务发布周期更新",
+    detail: "矢量街道图，显示道路、地名和地物",
+    note: "公开 MapLibre 样式；使用时保留地图自动署名。",
     docs: "https://openfreemap.org/quick_start/",
   },
   {
-    id: "nasa-gibs",
-    label: "NASA 卫星 · MODIS 真彩色",
-    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg",
+    id: "opentopomap",
+    label: "OpenTopoMap · 地形",
+    url: "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
     attribution:
-      '<a href="https://www.earthdata.nasa.gov/data/tools/gibs">NASA GIBS / MODIS Terra</a>',
-    maxZoom: 9,
+      'Kartendaten: © <a href="https://osm.org/copyright">OpenStreetMap-Mitwirkende</a>, SRTM | Kartendarstellung: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    maxZoom: 17,
     displayCrs: "WGS84",
     sourceType: "xyz",
-    group: "全球与开放数据",
-    note: "NASA GIBS MODIS Terra 真彩色，最高 250m 级别；日期默认为两天前，可能有云或缺测。",
-    docs: "https://nasa-gibs.github.io/gibs-api-docs/access-basics/",
-  },
-  {
-    id: "nasa-viirs",
-    label: "NASA 卫星 · VIIRS 真彩色",
-    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg",
-    attribution:
-      '<a href="https://www.earthdata.nasa.gov/data/tools/gibs">NASA GIBS / VIIRS Suomi NPP</a>',
-    maxZoom: 9,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "全球与开放数据",
-    coverage: "全球。",
-    updateInfo:
-      "按日提供；默认请求两天前的影像，云、夜间或缺测区域仍可能空白。",
-    detail:
-      "VIIRS 真彩色约 750m 级别，只适合大范围地表概览；不适合识别道路边界或车道。",
-    note: "NASA GIBS VIIRS Suomi NPP 每日真彩色浏览影像，最高 zoom 9；按数据日查看，不代表当天实况。",
-    docs: "https://nasa-gibs.github.io/gibs-api-docs/access-basics/",
-  },
-  {
-    id: "osm",
-    label: "OpenStreetMap 街道",
-    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution:
-      '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>',
-    maxZoom: 19,
-    displayCrs: "WGS84",
-    sourceType: "xyz",
-    group: "全球与开放数据",
-    note: "遵循 OSM 瓦片政策并保留可见署名；服务用于当前视口交互浏览，禁止预取或离线批量下载。",
-    docs: "https://operations.osmfoundation.org/policies/tiles/",
+    group: "地形参考",
+    coverage: "全球 OpenStreetMap 与 SRTM 数据覆盖区",
+    updateInfo: "地图数据更新时间随数据源变化",
+    detail: "等高线与地形渲染，适合地形背景参考",
+    note: "地形栅格图；需保留 OSM、SRTM 和 OpenTopoMap 署名并遵守 CC BY-SA。",
+    docs: "https://dev.opentopomap.org/about",
   },
 ];
 
-export const BASEMAP_GROUPS = [
-  "中国地图",
-  "Esri",
-  "开放影像",
-  "全球与开放数据",
+export const AUTHENTICATED_BASEMAP_PRESETS: BasemapPreset[] = [
+  {
+    id: "esri-token",
+    label: "Esri 全球影像 · 令牌",
+    url: "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token={token}",
+    attribution: esriAttribution,
+    maxZoom: 19,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "卫星与航空影像",
+    coverage: "全球；分辨率因地区而异",
+    updateInfo: "影像日期随地区变化，服务不标示单瓦片日期",
+    detail: "需要具有 World Imagery 访问权限的 ArcGIS 令牌",
+    note: "令牌只存在本次界面会话内，不写入项目或本地存储。",
+    docs: "https://developers.arcgis.com/rest/basemap-styles/service-data/",
+  },
 ];
+
+export const BASEMAP_GROUPS = ["卫星与航空影像", "街道与路网", "地形参考"];
 
 export type BasemapProtocolRequest = {
   url: string;
@@ -662,10 +576,12 @@ function validateCommon(label: string, attribution: string, maxZoom: number) {
 }
 
 export function createPresetConfig(id: string, token = ""): BasemapConfig {
-  const preset = BASEMAP_PRESETS.find((item) => item.id === id);
+  const preset = [...BASEMAP_PRESETS, ...AUTHENTICATED_BASEMAP_PRESETS].find(
+    (item) => item.id === id,
+  );
   if (!preset) throw new Error("找不到所选底图。");
   let url = preset.url;
-  let label = preset.label;
+  const label = preset.label;
   if (id === "esri-token") {
     const cleanToken = token.trim();
     if (
@@ -676,13 +592,6 @@ export function createPresetConfig(id: string, token = ""): BasemapConfig {
       throw new Error("请粘贴完整的 URL 安全 ArcGIS 访问令牌。");
     }
     url = url.replace("{token}", encodeURIComponent(cleanToken));
-  }
-  if (id === "nasa-gibs" || id === "nasa-viirs") {
-    const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    url = url.replace("{date}", date);
-    label = `${label} · ${date}`;
   }
   return { ...preset, url, label };
 }

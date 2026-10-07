@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTHENTICATED_BASEMAP_PRESETS,
   BASEMAP_PRESETS,
+  BASEMAP_GROUPS,
   createPresetConfig,
   createWmsBasemap,
   createXyzBasemap,
@@ -10,52 +12,47 @@ import {
 } from "../src/workbench/basemaps";
 
 describe("底图目录与服务配置", () => {
-  it("恢复旧版所有在线底图并标记高德需要纠偏", () => {
+  it("按用途展示八个常用预设并把影像排在前面", () => {
     expect(BASEMAP_PRESETS.map(({ id }) => id)).toEqual([
-      "amap-street",
       "amap-satellite",
       "esri-public",
-      "esri-clarity",
-      "esri-hillshade",
-      "esri-token",
       "usgs-imagery",
       "ign-ortho",
-      "osmfr-hot",
-      "osmfr",
-      "opentopomap",
-      "openfreemap-liberty",
-      "nasa-gibs",
-      "nasa-viirs",
+      "amap-street",
       "osm",
+      "openfreemap-liberty",
+      "opentopomap",
+    ]);
+    expect(BASEMAP_GROUPS).toEqual([
+      "卫星与航空影像",
+      "街道与路网",
+      "地形参考",
     ]);
     expect(createPresetConfig("amap-street").adapt).toBe("gcj02");
     expect(createPresetConfig("esri-public").displayCrs).toBe("WGS84");
+    expect(createPresetConfig("amap-satellite").group).toBe("卫星与航空影像");
+    expect(createPresetConfig("opentopomap").group).toBe("地形参考");
   });
 
-  it("为新增公开预设提供区域、更新时间与适用说明", () => {
+  it("为每个常用预设提供简短统一的用途与来源元数据", () => {
     for (const id of [
+      "amap-satellite",
+      "esri-public",
       "usgs-imagery",
       "ign-ortho",
-      "osmfr-hot",
-      "osmfr",
-      "opentopomap",
+      "amap-street",
+      "osm",
       "openfreemap-liberty",
-      "nasa-viirs",
+      "opentopomap",
     ]) {
       const config = createPresetConfig(id);
       const preset = BASEMAP_PRESETS.find((item) => item.id === id);
       expect(preset?.coverage).toBeTruthy();
       expect(preset?.updateInfo).toBeTruthy();
       expect(preset?.detail).toBeTruthy();
-      expect(config.url).toMatch(/^https:\/\//);
       expect(config.attribution).toBeTruthy();
+      expect(preset?.note).toBeTruthy();
     }
-
-    const viirs = createPresetConfig("nasa-viirs");
-    expect(viirs.url).not.toContain("{date}");
-    expect(viirs.url).toMatch(/\/\d{4}-\d{2}-\d{2}\//);
-    expect(viirs.label).toMatch(/· \d{4}-\d{2}-\d{2}$/);
-    expect(createPresetConfig("nasa-gibs").url).not.toContain("{date}");
 
     const openFreeMap = createPresetConfig("openfreemap-liberty");
     expect(openFreeMap.sourceType).toBe("style");
@@ -65,12 +62,32 @@ describe("底图目录与服务配置", () => {
     expect(createPresetConfig("opentopomap").sourceType).toBe("xyz");
   });
 
-  it("只接受有效 ArcGIS URL 安全令牌并将其编码进会话 URL", () => {
+  it("将需要授权的 ArcGIS 令牌来源与常用目录分开但保留转换能力", () => {
+    expect(BASEMAP_PRESETS.some((item) => item.id === "esri-token")).toBe(
+      false,
+    );
+    expect(AUTHENTICATED_BASEMAP_PRESETS.map(({ id }) => id)).toEqual([
+      "esri-token",
+    ]);
+    expect(AUTHENTICATED_BASEMAP_PRESETS[0].group).toBe("卫星与航空影像");
     expect(() => createPresetConfig("esri-token")).toThrow(/令牌/);
     expect(createPresetConfig("esri-token", "abc.DEF-123_~").url).toContain(
       "token=abc.DEF-123_~",
     );
     expect(() => createPresetConfig("esri-token", "token=abc")).toThrow(/令牌/);
+  });
+
+  it("不再提供不适合道路判读或与常用来源重复的预设", () => {
+    for (const id of [
+      "nasa-gibs",
+      "nasa-viirs",
+      "osmfr-hot",
+      "osmfr",
+      "esri-clarity",
+      "esri-hillshade",
+    ]) {
+      expect(() => createPresetConfig(id)).toThrow(/找不到/);
+    }
   });
 
   it("要求 XYZ 模板及 HTTPS，HTTP 只允许本机回环", () => {

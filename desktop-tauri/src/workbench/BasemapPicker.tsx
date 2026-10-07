@@ -3,6 +3,7 @@ import { Check, FileUp, Search, X } from "./Iconfont";
 import {
   BASEMAP_GROUPS,
   BASEMAP_PRESETS,
+  AUTHENTICATED_BASEMAP_PRESETS,
   createPresetConfig,
   createWmsBasemap,
   createXyzBasemap,
@@ -29,7 +30,6 @@ export function BasemapPicker({
   position,
 }: BasemapPickerProps) {
   const [search, setSearch] = useState("");
-  const [freeOnly, setFreeOnly] = useState(false);
   const [mode, setMode] = useState<"catalog" | "custom">("catalog");
   const [customType, setCustomType] = useState<"xyz" | "wms">("xyz");
   const [label, setLabel] = useState("");
@@ -39,8 +39,8 @@ export function BasemapPicker({
   const [maxZoom, setMaxZoom] = useState("19");
   const [token, setToken] = useState("");
   const [formError, setFormError] = useState("");
-  const [showCredentials, setShowCredentials] = useState(false);
   const root = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
@@ -81,13 +81,16 @@ export function BasemapPicker({
     const needle = search.trim().toLocaleLowerCase();
     return BASEMAP_PRESETS.filter(
       (item) =>
-        (!freeOnly || !item.url.includes("{token}")) &&
-        (!needle ||
-          `${item.label} ${item.group} ${item.note} ${item.coverage ?? ""} ${item.updateInfo ?? ""} ${item.detail ?? ""}`
-            .toLocaleLowerCase()
-            .includes(needle)),
+        !needle ||
+        `${item.label} ${item.group} ${item.note} ${item.coverage ?? ""} ${item.updateInfo ?? ""} ${item.detail ?? ""}`
+          .toLocaleLowerCase()
+          .includes(needle),
     );
-  }, [search, freeOnly]);
+  }, [search]);
+
+  useEffect(() => {
+    if (list.current) list.current.scrollTop = 0;
+  }, [search]);
 
   const selectPreset = (id: string) => {
     try {
@@ -96,7 +99,6 @@ export function BasemapPicker({
       onClose();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "底图配置无效。");
-      if (id === "esri-token") setShowCredentials(true);
     }
   };
 
@@ -142,7 +144,10 @@ export function BasemapPicker({
             type="button"
             role="tab"
             aria-selected={mode === "catalog"}
-            onClick={() => setMode("catalog")}
+            onClick={() => {
+              setFormError("");
+              setMode("catalog");
+            }}
           >
             在线底图
           </button>
@@ -150,7 +155,10 @@ export function BasemapPicker({
             type="button"
             role="tab"
             aria-selected={mode === "custom"}
-            onClick={() => setMode("custom")}
+            onClick={() => {
+              setFormError("");
+              setMode("custom");
+            }}
           >
             XYZ / WMS
           </button>
@@ -208,15 +216,10 @@ export function BasemapPicker({
               </span>
             </button>
           </div>
-          <label className="basemap-picker__filter">
-            <input
-              type="checkbox"
-              checked={freeOnly}
-              onChange={(event) => setFreeOnly(event.target.checked)}
-            />
-            仅显示免 token 底图
-          </label>
-          <div className="basemap-picker__list">
+          <div className="basemap-picker__list" ref={list}>
+            <p className="basemap-picker__catalog-hint">
+              OSM 显示路网；查看地表请选卫星与航空影像。
+            </p>
             {BASEMAP_GROUPS.map((group) => {
               const options = filtered.filter((item) => item.group === group);
               if (!options.length) return null;
@@ -233,7 +236,7 @@ export function BasemapPicker({
                       title={[
                         item.note,
                         item.coverage,
-                        item.updateInfo,
+                        item.updateInfo ?? "影像／数据日期未知，以供方为准",
                         item.detail,
                       ]
                         .filter(Boolean)
@@ -241,19 +244,9 @@ export function BasemapPicker({
                     >
                       <span className="basemap-picker__option-copy">
                         <strong>{item.label}</strong>
-                        <small>
-                          {item.displayCrs === "GCJ-02"
-                            ? "GCJ-02 · 纠偏"
-                            : "WGS84"}{" "}
-                          ·{" "}
-                          {item.url.includes("{token}")
-                            ? "需 token"
-                            : "免 token"}
-                          {item.coverage ? ` · ${item.coverage}` : ""}
-                        </small>
+                        <small>{item.coverage ?? "全球开放数据覆盖区"}</small>
                         <small className="basemap-picker__detail">
-                          {item.updateInfo ?? "影像／数据日期以供方为准"}
-                          {item.detail ? ` · ${item.detail}` : ""}
+                          {item.detail ?? item.note}
                         </small>
                       </span>
                       {activeId === item.id && (
@@ -268,28 +261,6 @@ export function BasemapPicker({
               <p className="basemap-picker__empty">没有匹配的底图。</p>
             )}
           </div>
-          {showCredentials && (
-            <div className="basemap-picker__credentials">
-              <label className="basemap-picker__field">
-                <span>Esri 服务访问令牌 · 仅本次会话</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  placeholder="输入 ArcGIS 访问令牌"
-                />
-              </label>
-              <button
-                type="button"
-                className="basemap-picker__submit"
-                onClick={() => selectPreset("esri-token")}
-              >
-                应用 Esri 底图
-              </button>
-            </div>
-          )}
         </>
       ) : (
         <div className="basemap-picker__form">
@@ -377,6 +348,39 @@ export function BasemapPicker({
           >
             应用底图
           </button>
+          {AUTHENTICATED_BASEMAP_PRESETS.some(
+            (item) => item.id === "esri-token",
+          ) && (
+            <details
+              className="basemap-picker__disclosure basemap-picker__authorized"
+              data-testid="basemap-authorized-services"
+            >
+              <summary>授权影像（ArcGIS）</summary>
+              <p>
+                使用你在 ArcGIS 获得的影像访问令牌。令牌仅保留在本次会话中。
+              </p>
+              <label className="basemap-picker__field">
+                <span>ArcGIS 访问令牌</span>
+                <input
+                  aria-label="ArcGIS 访问令牌"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  placeholder="粘贴 ArcGIS 访问令牌"
+                />
+              </label>
+              <button
+                type="button"
+                className="basemap-picker__submit"
+                aria-label="应用 ArcGIS 影像"
+                onClick={() => selectPreset("esri-token")}
+              >
+                应用 ArcGIS 影像
+              </button>
+            </details>
+          )}
         </div>
       )}
       {formError && (
