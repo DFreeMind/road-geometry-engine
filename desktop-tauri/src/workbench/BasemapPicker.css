@@ -3,8 +3,8 @@
   z-index: 8;
   bottom: 98px;
   left: 12px;
-  width: min(326px, calc(100% - 24px));
-  max-height: min(400px, calc(100% - 154px));
+  width: min(420px, calc(100% - 24px));
+  max-height: min(520px, calc(100% - 80px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -14,6 +14,21 @@
   border-radius: 10px;
   box-shadow: 0 12px 36px rgb(18 37 61 / 18%);
   font-size: 12px;
+}
+.basemap-picker__filter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 12px;
+  color: #435873;
+  cursor: pointer;
+}
+.basemap-picker__filter input {
+  accent-color: #2563eb;
+}
+.basemap-picker__option small.basemap-picker__detail {
+  color: #52657d;
+  font-size: 10px;
 }
 
 .basemap-picker__header {

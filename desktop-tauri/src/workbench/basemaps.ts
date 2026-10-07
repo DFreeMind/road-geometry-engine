@@ -10,6 +10,9 @@ export type BasemapConfig = {
   adapt?: "gcj02";
   sourceType?: "xyz" | "wms";
   group?: string;
+  coverage?: string;
+  updateInfo?: string;
+  detail?: string;
 };
 
 type Preset = BasemapConfig & { note: string; docs: string };
@@ -94,6 +97,79 @@ export const BASEMAP_PRESETS: Preset[] = [
     docs: "https://developers.arcgis.com/rest/basemap-styles/service-data/",
   },
   {
+    id: "usgs-imagery",
+    label: "USGS 正射影像 · 美国",
+    url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      '<a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">U.S. Geological Survey, The National Map</a>',
+    maxZoom: 19,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "开放影像",
+    coverage:
+      "美国；不同地区与缩放级别使用不同影像来源，非全境均有同等高分辨率。",
+    updateInfo:
+      "服务元数据显示影像数据于 2024-06 刷新；具体区域的航摄日期各异。",
+    detail:
+      "高分辨率正射影像适合美国道路位置与周边环境目视检查；不可替代测量控制或现场核验。",
+    note: "The National Map 影像瓦片公开且免费；美国本土常见 NAIP 正射影像约 1m，城市局部有更高分辨率影像。美国之外覆盖或细节可能不同。",
+    docs: "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
+  },
+  {
+    id: "ign-ortho",
+    label: "IGN 正射影像 · 法国",
+    url: "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+    attribution:
+      '<a href="https://geoservices.ign.fr/bd-ortho">© IGN – BD ORTHO</a>',
+    maxZoom: 19,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "开放影像",
+    coverage: "法国本土及部分海外领土；具体影像覆盖随区域而变。",
+    updateInfo:
+      "BD ORTHO 分区更新；官方产品说明的采集影像平均约 3 年、最长约 5 年，单个瓦片的拍摄年份未知。",
+    detail:
+      "航空正射影像，适合道路和地物目视核对；实际分辨率与拍摄年代依区域而变。",
+    note: "IGN Géoplateforme 正射影像 WMTS，无需令牌；BD ORTHO 产品使用 Etalab 开放许可并需保留署名。瓦片服务可用性不保证。",
+    docs: "https://geoservices.ign.fr/sites/default/files/2022-10/IGNF_BDORTHOr_2-0.html",
+  },
+  {
+    id: "osmfr-hot",
+    label: "OSM France · 人道主义街道",
+    url: "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+    attribution:
+      'Données © <a href="https://osm.org/copyright">OpenStreetMap</a> / ODbL · rendu <a href="https://hot.openstreetmap.org/">Humanitarian OpenStreetMap Team</a>',
+    maxZoom: 19,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "全球与开放数据",
+    coverage: "全球 OpenStreetMap 数据覆盖区。",
+    updateInfo:
+      "底层数据库约每 5 分钟更新；低 zoom 的缓存瓦片每周更新，高 zoom 瓦片按请求或更新需求生成。",
+    detail:
+      "街道地图强调道路与人道救援相关 POI；适合道路网络背景核对，不是正射影像或测量底图。",
+    note: "OSM France 提供的 HOT 街道样式，需在地图上清晰显示 OSM 与 HOT 署名；遵守服务使用条件，避免批量请求。",
+    docs: "https://wiki.openstreetmap.org/wiki/FR:Serveurs/tile.openstreetmap.fr",
+  },
+  {
+    id: "osmfr",
+    label: "OSM France · 法语街道",
+    url: "https://a.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
+    attribution:
+      'Données © <a href="https://osm.org/copyright">OpenStreetMap</a> / ODbL · rendu <a href="https://openstreetmap.fr/">OSM France</a>',
+    maxZoom: 20,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "全球与开放数据",
+    coverage: "全球 OpenStreetMap 数据覆盖区；样式与地名主要面向法语使用者。",
+    updateInfo:
+      "底层数据库约每 5 分钟更新；zoom 0–12 缓存瓦片每周更新，高 zoom 瓦片按请求或更新需求生成。",
+    detail:
+      "突出道路与法语地名的街道地图，可放大到 zoom 20；不是正射影像或测量底图。",
+    note: "OSM France 法语街道样式；需在地图上清晰显示 OSM 与 OSM France 署名，并遵守服务使用条件。",
+    docs: "https://wiki.openstreetmap.org/wiki/FR:Serveurs/tile.openstreetmap.fr",
+  },
+  {
     id: "nasa-gibs",
     label: "NASA 卫星 · MODIS 真彩色",
     url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg",
@@ -104,6 +180,24 @@ export const BASEMAP_PRESETS: Preset[] = [
     sourceType: "xyz",
     group: "全球与开放数据",
     note: "NASA GIBS MODIS Terra 真彩色，最高 250m 级别；日期默认为两天前，可能有云或缺测。",
+    docs: "https://nasa-gibs.github.io/gibs-api-docs/access-basics/",
+  },
+  {
+    id: "nasa-viirs",
+    label: "NASA 卫星 · VIIRS 真彩色",
+    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg",
+    attribution:
+      '<a href="https://www.earthdata.nasa.gov/data/tools/gibs">NASA GIBS / VIIRS Suomi NPP</a>',
+    maxZoom: 9,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "全球与开放数据",
+    coverage: "全球。",
+    updateInfo:
+      "按日提供；默认请求两天前的影像，云、夜间或缺测区域仍可能空白。",
+    detail:
+      "VIIRS 真彩色约 750m 级别，只适合大范围地表概览；不适合识别道路边界或车道。",
+    note: "NASA GIBS VIIRS Suomi NPP 每日真彩色浏览影像，最高 zoom 9；按数据日查看，不代表当天实况。",
     docs: "https://nasa-gibs.github.io/gibs-api-docs/access-basics/",
   },
   {
@@ -121,7 +215,12 @@ export const BASEMAP_PRESETS: Preset[] = [
   },
 ];
 
-export const BASEMAP_GROUPS = ["中国地图", "Esri", "全球与开放数据"];
+export const BASEMAP_GROUPS = [
+  "中国地图",
+  "Esri",
+  "开放影像",
+  "全球与开放数据",
+];
 
 export type BasemapProtocolRequest = {
   url: string;
@@ -542,7 +641,7 @@ export function createPresetConfig(id: string, token = ""): BasemapConfig {
     }
     url = url.replace("{token}", encodeURIComponent(cleanToken));
   }
-  if (id === "nasa-gibs") {
+  if (id === "nasa-gibs" || id === "nasa-viirs") {
     const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);

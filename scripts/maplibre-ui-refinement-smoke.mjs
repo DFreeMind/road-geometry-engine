@@ -19,6 +19,7 @@ await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror
 let sequence = 0;
 const pending = new Map();
 const errors = [];
+const imageResponses = [];
 socket.onmessage = event => {
   const message = JSON.parse(event.data);
   if (message.id) {
@@ -26,6 +27,8 @@ socket.onmessage = event => {
     pending.delete(message.id);
     if (message.error) handler?.reject(new Error(JSON.stringify(message.error)));
     else handler?.resolve(message.result);
+  } else if (message.method === 'Network.responseReceived' && message.params.response.mimeType.startsWith('image/')) {
+    imageResponses.push({url:message.params.response.url,status:message.params.response.status});
   } else if (message.method === 'Runtime.exceptionThrown') {
     errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
   }
@@ -86,6 +89,7 @@ const lane = '.road-panel input[aria-label="左侧第 1 条车道宽度"]';
 try {
   await command('Runtime.enable');
   await command('Page.enable');
+  await command('Network.enable');
   await command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await waitFor('Boolean(window.__ROAD_WORKBENCH__ && document.querySelector(".maplibregl-canvas"))');
   await waitFor('window.__ROAD_WORKBENCH__.getMap()?.isStyleLoaded()');
@@ -169,12 +173,39 @@ try {
       assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length>=2'));
       assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().example_source.attributes_status.includes("待人工核验")'));
       await screenshot('example-'+id+'.png');
+      if(id==='treasure-island-ramp') {
+        await click('[aria-label="底图设置"]');
+        await fill('.basemap-picker__search input','USGS');
+        await click('[data-basemap-id="usgs-imagery"]');
+        const limit=Date.now()+30000;
+        while(Date.now()<limit && !imageResponses.some(r=>r.status===200 && r.url.includes('USGSImageryOnly/MapServer/tile/'))) await pause(200);
+        assert(imageResponses.some(r=>r.status===200 && r.url.includes('USGSImageryOnly/MapServer/tile/')),'实际工作台未收到USGS图片瓦片');
+        await waitFor('window.__ROAD_WORKBENCH__.getMap().isSourceLoaded("user-xyz")');
+        await pause(400);
+        assert(await evaluate('document.querySelector(".maplibregl-ctrl-attrib").innerText.includes("Geological Survey")'));
+        assert(await evaluate(`(() => {const m=document.querySelector('.map-workspace').getBoundingClientRect(),a=document.querySelector('.maplibregl-ctrl-attrib').getBoundingClientRect(),n=document.querySelector('.maplibregl-ctrl-top-right > .maplibregl-ctrl').getBoundingClientRect();return Math.abs(m.bottom-a.bottom-12)<2 && a.right<=n.left;})()`));
+        await screenshot('public-usgs-road.png');
+        check('公开影像实际加载', '通过底图控件选USGS，实际收到HTTP200图片并显示署名；底部署名与缩放控件无重叠');
+      }
     }
     check('菜单加载真实案例', '城市主干道、弯曲山路、高速匝道分别加载实际 OSM 几何，标明模板属性待核验');
+    assert(await evaluate(`(() => {const map=document.querySelector('.map-workspace').getBoundingClientRect(),scale=document.querySelector('.map-scale-zoom').getBoundingClientRect(),nav=document.querySelector('.maplibregl-ctrl-top-right > .maplibregl-ctrl').getBoundingClientRect();return Math.abs(map.bottom-scale.bottom-12)<2 && Math.abs(map.bottom-nav.bottom-12)<2;})()`));
+    check('底部地图控件', '比例尺与缩放控件距离地图下沿12像素，统一底部留白');
+    await click('[aria-label="绘制路线"]');
+    assert(await evaluate(`(() => {const hint=document.querySelector('.drawing-hint').getBoundingClientRect(),tools=document.querySelector('.map-top-controls').getBoundingClientRect(),route=document.querySelector('.route-map-card').getBoundingClientRect();return !document.querySelector('.current-tool-chip') && hint.width<=480 && route.top>=tools.bottom;})()`));
+    await screenshot('compact-map-tools.png');
+    await click('[aria-label="退出绘制"]');
+    check('顶部地图信息精简', '移除重复当前工具提示，绘制提示不再横贯画布，保留工具名称及可访问标签');
     await click('[aria-label="底图设置"]');
     await waitFor('Boolean(document.querySelector(".basemap-picker"))');
     assert(await evaluate(`(() => {const p=document.querySelector('.basemap-picker').getBoundingClientRect(),t=document.querySelector('[aria-label="底图设置"]').getBoundingClientRect();return p.top>=t.bottom&&p.top-t.bottom<12&&p.right<=innerWidth;})()`));
     assert.equal(await evaluate('Boolean(document.querySelector(".basemap-chip"))'),false);
+    await click('.basemap-picker__filter input');
+    assert(await evaluate('!document.querySelector("[data-basemap-id=esri-token]") && document.querySelectorAll("[data-basemap-id]").length>=8'));
+    await fill('.basemap-picker__search input','NASA');
+    assert(await evaluate('document.querySelectorAll("[data-basemap-id]").length>=1 && [...document.querySelectorAll(".basemap-picker__option")].every(e => e.textContent.includes("NASA"))'));
+    await fill('.basemap-picker__search input','');
+    check('底图目录说明与筛选', '免token筛选与搜索可操作，卡片显示覆盖、更新和道路对比适用性');
     await screenshot('basemap-top-anchor.png');
     await key('Escape','Escape',27);
     await waitFor('!document.querySelector(".basemap-picker")');
@@ -188,9 +219,9 @@ try {
     assert(await evaluate('document.querySelector(".brand").innerText.includes("路境工作台")'));
     assert(await evaluate('document.querySelector(".inspector").getBoundingClientRect().width > 250'));
     assert(await evaluate('document.querySelector(".workbench-footer").getBoundingClientRect().width >= 1439'));
-    assert(await evaluate(`document.querySelector('.tool-group [aria-label="编辑路线顶点"]').innerText.includes('编辑顶点')`));
+    assert(await evaluate(`document.querySelector('.tool-group [aria-label="编辑路线顶点"]').title.includes('编辑') && document.querySelector('.tool-group button.selected').innerText.includes('选择')`));
     assert(await evaluate(`(() => { const c=document.querySelector('.maplibregl-ctrl-top-right .maplibregl-ctrl-group').getBoundingClientRect(),l=document.querySelector('.legend-card').getBoundingClientRect();return c.bottom<=l.top||c.top>=l.bottom||c.right<=l.left||c.left>=l.right; })()`));
-    check('设计结构落实', '可见品牌、带文字工具条、右侧属性面板及全窗口底栏');
+    check('设计结构落实', '可见品牌、选中工具文字与其他图标标签、右侧属性面板及全窗口底栏');
     await screenshot('after-data-1440.png');
     check('当前路线生成', '鼠标点击顶部生成，调用真实原生引擎');
     await click('.left-rail [aria-label="道路"]');
@@ -278,7 +309,7 @@ try {
     assert.equal(saved.section.median_width, 1.8);
     await evaluate(`window.__ROAD_WORKBENCH__.dialogs.open.push(${JSON.stringify(savedPath)})`);
     await click('[aria-label="打开项目"]');
-    await waitFor('document.querySelector(".project-title")?.innerText.includes("ui-project.json") && !document.querySelector(".workbench-dialog")');
+    await waitFor('document.querySelector(".project-title")?.innerText.includes("ui-project.json") && document.querySelector(".status-message")?.textContent.includes("已打开项目") && !document.querySelector(".workbench-dialog")');
     assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.median_width'), 1.8);
     check('保存与恢复', '真实文件保存并从顶部打开，人工修改与成果恢复；只替代原生路径选择');
     await key('n','KeyN',78,2);
@@ -303,7 +334,7 @@ try {
     check('1024 窗口', '顶部操作未溢出，地图仍可见，图标按钮保留可访问名称');
   }
   assert.equal(errors.length, 0, errors.join('\n'));
-  await fs.writeFile(path.join(outputDirectory, 'ui-interaction-report.json'), JSON.stringify({baseline, viewport:'1440×900 / 1024×768', input:'WebView2 CDP 鼠标与键盘', checks, pending:['Windows 中文输入法候选窗人工操作','真实数据库及线上底图','跨设备 DPI'], errors},null,2));
+  await fs.writeFile(path.join(outputDirectory, 'ui-interaction-report.json'), JSON.stringify({baseline, viewport:'1440×900 / 1024×768', publicImageResponses:imageResponses.filter(r=>r.url.includes('USGSImageryOnly')).slice(0,6), input:'WebView2 CDP 鼠标与键盘', checks, pending:['Windows 中文输入法候选窗人工操作','真实数据库及其他底图覆盖区域操作','跨设备 DPI'], errors},null,2));
   console.log(JSON.stringify({passed:checks.length, baseline, outputDirectory}));
 } catch (error) {
   await screenshot('failure.png').catch(() => undefined);

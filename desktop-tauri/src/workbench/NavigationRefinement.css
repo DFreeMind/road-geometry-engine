@@ -1,4 +1,36 @@
 /* 导航和启动状态共用一套触发位置，不重复放置底图入口。 */
+.app-shell.design-refined .maplibregl-ctrl-bottom-left,
+.app-shell.design-refined .maplibregl-ctrl-bottom-right,
+.app-shell.design-refined .maplibregl-ctrl-top-right {
+  bottom: 12px;
+}
+.app-shell.design-refined .maplibregl-ctrl-bottom-left {
+  left: 12px;
+}
+.app-shell.design-refined .maplibregl-ctrl-bottom-right {
+  right: 54px;
+}
+.app-shell.design-refined .maplibregl-ctrl-bottom-left > .maplibregl-ctrl,
+.app-shell.design-refined .maplibregl-ctrl-bottom-right > .maplibregl-ctrl,
+.app-shell.design-refined .maplibregl-ctrl-top-right > .maplibregl-ctrl {
+  margin: 0;
+}
+.app-shell.design-refined .map-top-controls .tool-group button span,
+.app-shell.design-refined .map-action[aria-label="专注地图"] span,
+.app-shell.design-refined .map-action[aria-label="恢复面板布局"] span {
+  display: none;
+}
+.app-shell.design-refined .map-top-controls .tool-group button.selected span {
+  display: inline;
+}
+.app-shell.design-refined .map-overlays .drawing-hint,
+.app-shell.design-refined .map-overlays .compare-banner {
+  width: fit-content;
+  max-width: min(480px, 100%);
+  justify-self: start;
+  padding: 8px 10px;
+  font-size: 11px;
+}
 .app-shell.design-refined.at-start .workspace {
   grid-template-columns: minmax(0, 1fr) !important;
 }

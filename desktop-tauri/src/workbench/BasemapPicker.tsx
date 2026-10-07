@@ -29,6 +29,7 @@ export function BasemapPicker({
   position,
 }: BasemapPickerProps) {
   const [search, setSearch] = useState("");
+  const [freeOnly, setFreeOnly] = useState(false);
   const [mode, setMode] = useState<"catalog" | "custom">("catalog");
   const [customType, setCustomType] = useState<"xyz" | "wms">("xyz");
   const [label, setLabel] = useState("");
@@ -80,12 +81,13 @@ export function BasemapPicker({
     const needle = search.trim().toLocaleLowerCase();
     return BASEMAP_PRESETS.filter(
       (item) =>
-        !needle ||
-        `${item.label} ${item.group} ${item.note}`
-          .toLocaleLowerCase()
-          .includes(needle),
+        (!freeOnly || !item.url.includes("{token}")) &&
+        (!needle ||
+          `${item.label} ${item.group} ${item.note} ${item.coverage ?? ""} ${item.updateInfo ?? ""} ${item.detail ?? ""}`
+            .toLocaleLowerCase()
+            .includes(needle)),
     );
-  }, [search]);
+  }, [search, freeOnly]);
 
   const selectPreset = (id: string) => {
     try {
@@ -206,6 +208,14 @@ export function BasemapPicker({
               </span>
             </button>
           </div>
+          <label className="basemap-picker__filter">
+            <input
+              type="checkbox"
+              checked={freeOnly}
+              onChange={(event) => setFreeOnly(event.target.checked)}
+            />
+            仅显示免 token 底图
+          </label>
           <div className="basemap-picker__list">
             {BASEMAP_GROUPS.map((group) => {
               const options = filtered.filter((item) => item.group === group);
@@ -217,16 +227,33 @@ export function BasemapPicker({
                     <button
                       className={`basemap-picker__option${activeId === item.id ? " is-active" : ""}`}
                       key={item.id}
+                      data-basemap-id={item.id}
                       type="button"
                       onClick={() => selectPreset(item.id)}
-                      title={item.note}
+                      title={[
+                        item.note,
+                        item.coverage,
+                        item.updateInfo,
+                        item.detail,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
                     >
                       <span className="basemap-picker__option-copy">
                         <strong>{item.label}</strong>
                         <small>
                           {item.displayCrs === "GCJ-02"
                             ? "GCJ-02 · 纠偏"
-                            : "WGS84"}
+                            : "WGS84"}{" "}
+                          ·{" "}
+                          {item.url.includes("{token}")
+                            ? "需 token"
+                            : "免 token"}
+                          {item.coverage ? ` · ${item.coverage}` : ""}
+                        </small>
+                        <small className="basemap-picker__detail">
+                          {item.updateInfo ?? "影像／数据日期以供方为准"}
+                          {item.detail ? ` · ${item.detail}` : ""}
                         </small>
                       </span>
                       {activeId === item.id && (

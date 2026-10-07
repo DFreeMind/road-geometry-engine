@@ -18,11 +18,40 @@ describe("底图目录与服务配置", () => {
       "esri-clarity",
       "esri-hillshade",
       "esri-token",
+      "usgs-imagery",
+      "ign-ortho",
+      "osmfr-hot",
+      "osmfr",
       "nasa-gibs",
+      "nasa-viirs",
       "osm",
     ]);
     expect(createPresetConfig("amap-street").adapt).toBe("gcj02");
     expect(createPresetConfig("esri-public").displayCrs).toBe("WGS84");
+  });
+
+  it("为新增公开预设提供区域、更新时间与适用说明", () => {
+    for (const id of [
+      "usgs-imagery",
+      "ign-ortho",
+      "osmfr-hot",
+      "osmfr",
+      "nasa-viirs",
+    ]) {
+      const config = createPresetConfig(id);
+      const preset = BASEMAP_PRESETS.find((item) => item.id === id);
+      expect(preset?.coverage).toBeTruthy();
+      expect(preset?.updateInfo).toBeTruthy();
+      expect(preset?.detail).toBeTruthy();
+      expect(config.url).toMatch(/^https:\/\//);
+      expect(config.attribution).toBeTruthy();
+    }
+
+    const viirs = createPresetConfig("nasa-viirs");
+    expect(viirs.url).not.toContain("{date}");
+    expect(viirs.url).toMatch(/\/\d{4}-\d{2}-\d{2}\//);
+    expect(viirs.label).toMatch(/· \d{4}-\d{2}-\d{2}$/);
+    expect(createPresetConfig("nasa-gibs").url).not.toContain("{date}");
   });
 
   it("只接受有效 ArcGIS URL 安全令牌并将其编码进会话 URL", () => {

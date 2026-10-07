@@ -778,14 +778,14 @@ try {
   assert(await evaluate('document.querySelector(".coordinate-system").innerText.includes("WGS84")'));
   check('数据面板去重、项目详情折叠与坐标显示切换',true);
   await click('[aria-label="底图设置"]');
-  assert.equal(await evaluate('document.querySelectorAll(".basemap-picker__option").length'),8);
-  assert(await evaluate('document.querySelector(".basemap-picker").getBoundingClientRect().height <= 400'), '底图目录占位过大');
+  assert(await evaluate('document.querySelectorAll(".basemap-picker__option").length>=12'));
+  assert(await evaluate('document.querySelector(".basemap-picker").getBoundingClientRect().height <= 520'), '底图目录占位过大');
   assert(await evaluate('!document.querySelector(".basemap-picker input[type=password]")'), '底图令牌应按需展开');
   await evaluate('[...document.querySelectorAll(".basemap-picker__option")].find(e=>e.innerText.includes("令牌")).click()');
   await waitFor('Boolean(document.querySelector(".basemap-picker input[type=password]"))');
   assert(await evaluate('document.querySelector(".basemap-picker__error").innerText.includes("令牌")'), '缺令牌时应显示可操作的提示');
   check('紧凑底图目录与凭据按需展开',true);
-  await screenshot('09-basemap-picker.png'); check('八种在线底图与XYZ/WMS选择入口',true);
+  await screenshot('09-basemap-picker.png'); check('在线底图目录与XYZ/WMS选择入口',true);
   await evaluate('document.querySelector(".basemap-picker__local").click()');
   await waitFor('!document.querySelector(".basemap-picker")'); assert.equal(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getMap().getSource("user-xyz"))'),false); check('无在线底图切换与清理',true);
   await clickText('视图'); await clickText('对比原始底图');

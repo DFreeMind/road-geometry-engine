@@ -554,10 +554,12 @@ function Workbench() {
     "geographic" | "project"
   >("geographic");
   const basemapTriggerRef = useRef<HTMLButtonElement>(null);
+  const mapToolbarRef = useRef<HTMLDivElement>(null);
+  const [mapOverlayTop, setMapOverlayTop] = useState(62);
   const [basemapPosition, setBasemapPosition] = useState({
     top: 64,
     right: 12,
-    maxHeight: 400,
+    maxHeight: 520,
   });
   const [showBasemap, setShowBasemap] = useState(false);
   const [showInspector, setShowInspector] = useState(
@@ -4796,13 +4798,13 @@ function Workbench() {
         12,
         Math.min(
           map.right - trigger.right,
-          Math.max(12, map.width - Math.min(326, map.width - 24) - 12),
+          Math.max(12, map.width - Math.min(420, map.width - 24) - 12),
         ),
       );
       setBasemapPosition({
         top,
         right,
-        maxHeight: Math.min(400, Math.max(100, map.height - top - 12)),
+        maxHeight: Math.min(520, Math.max(100, map.height - top - 12)),
       });
     };
     position();
@@ -4811,6 +4813,25 @@ function Workbench() {
     observer.observe(button);
     return () => observer.disconnect();
   }, [showBasemap, layout, showLeft, showInspector, activeBasemap]);
+  useLayoutEffect(() => {
+    const toolbar = mapToolbarRef.current;
+    const area = toolbar?.parentElement;
+    if (!toolbar || !area) return;
+    const measure = () => {
+      if (showStartPage) return;
+      setMapOverlayTop(
+        toolbar.getBoundingClientRect().bottom -
+          area.getBoundingClientRect().top +
+          8,
+      );
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbar);
+    observer.observe(area);
+    measure();
+    return () => observer.disconnect();
+  }, [showStartPage, showLeft, showInspector, layout, tool]);
+
   function startResize(side: "left" | "right", event: React.PointerEvent) {
     event.preventDefault();
     const start = event.clientX;
@@ -5769,7 +5790,7 @@ function Workbench() {
               onOpenRecent={(path) => void loadProject(path)}
             />
           )}
-          <div className="map-top-controls">
+          <div className="map-top-controls" ref={mapToolbarRef}>
             <div
               className="tool-group"
               role="toolbar"
@@ -5937,10 +5958,10 @@ function Workbench() {
                 }
                 onClick={() => setShowBasemap((value) => !value)}
                 aria-label="底图设置"
-                title="底图设置"
+                title={`底图设置 · ${activeBasemap?.label ?? "离线画布"}`}
               >
                 <MapIcon size={16} />
-                <span>{activeBasemap?.label ?? "底图"}</span>
+                <span>底图</span>
                 <ChevronDown size={12} />
               </button>
               <button
@@ -5979,19 +6000,7 @@ function Workbench() {
               }}
             />
           )}
-          <div className="current-tool-chip" role="status">
-            <MousePointer2 size={14} />
-            {tool === "route"
-              ? "绘制路线 · 点击添加控制点"
-              : tool === "vertex"
-                ? "编辑顶点 · 拖动调整，Delete 删除"
-                : tool === "surface"
-                  ? "编辑面 · 点击选择道路组成"
-                  : tool === "facility"
-                    ? "布设设施 · 点击地图放置"
-                    : "当前工具：选择 / 平移"}
-          </div>
-          <div className="map-overlays">
+          <div className="map-overlays" style={{ top: mapOverlayTop }}>
             <div
               className={`route-map-card ${showRouteSummary ? "" : "compact"}`}
             >
