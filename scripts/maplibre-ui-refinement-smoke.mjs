@@ -152,6 +152,26 @@ try {
     }
     await key('Escape','Escape',27);
     await waitFor('window.__ROAD_WORKBENCH__.getProject().route_points.length===2');
+  const wheelPoint = await evaluate('(()=>{const b=document.querySelector(".maplibregl-canvas").getBoundingClientRect();return {x:Math.round(b.x+b.width*.62),y:Math.round(b.y+b.height*.52)};})()');
+  const verifyWheelZoom = async (deltaY, label) => {
+    const before = await evaluate(`(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),b=m.getCanvas().getBoundingClientRect();return {zoom:m.getZoom(),center:m.getCenter().toArray(),anchor:m.unproject([${wheelPoint.x}-b.left,${wheelPoint.y}-b.top]).toArray(),pageScroll:[scrollX,scrollY]};})()`);
+    await command('Input.dispatchMouseEvent',{type:'mouseWheel',x:wheelPoint.x,y:wheelPoint.y,deltaX:0,deltaY});
+    await pause(450);
+    const after = await evaluate(`(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),b=m.getCanvas().getBoundingClientRect(),p=m.project(${JSON.stringify(before.anchor)});return {zoom:m.getZoom(),anchorPixel:[p.x+b.left,p.y+b.top]};})()`);
+    assert(deltaY<0?after.zoom>before.zoom:after.zoom<before.zoom,`${label}应改变地图缩放方向`);
+    assert(Math.hypot(after.anchorPixel[0]-wheelPoint.x,after.anchorPixel[1]-wheelPoint.y)<2.5,`${label}缩放时指针下地理位置漂移`);
+    assert.deepEqual(await evaluate('([scrollX,scrollY])'),before.pageScroll,`${label}不能滚动页面`);
+    await command('Input.dispatchMouseEvent',{type:'mouseWheel',x:wheelPoint.x,y:wheelPoint.y,deltaX:0,deltaY:-deltaY});
+    await pause(450);
+    const restored=await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
+    assert(Math.abs(restored.zoom-before.zoom)<0.03,`${label}反向滚轮未恢复缩放级别`);
+    assert(Math.abs(restored.center[0]-before.center[0])<1e-6&&Math.abs(restored.center[1]-before.center[1])<1e-6,`${label}反向滚轮未恢复地图中心`);
+  };
+  await verifyWheelZoom(-120,'地图画布滚轮 -120');
+  await verifyWheelZoom(120,'地图画布滚轮 +120');
+  await verifyWheelZoom(-12.5,'地图画布小数滚轮 -12.5');
+  await verifyWheelZoom(12.5,'地图画布小数滚轮 +12.5');
+  check('地图画布真实滚轮缩放', '正负120和小数增量均改变缩放方向；指针锚点、中心可恢复且页面不翻动');
     await waitFor('!document.querySelector(' + JSON.stringify(topGenerate) + ').disabled');
     await click(topGenerate);
     await waitFor('Boolean(window.__ROAD_WORKBENCH__.getProject().output)');
@@ -252,17 +272,52 @@ try {
     await waitFor('Boolean(document.querySelector(".basemap-picker"))');
     assert(await evaluate(`(() => {const p=document.querySelector('.basemap-picker').getBoundingClientRect(),t=document.querySelector('[aria-label="底图设置"]').getBoundingClientRect();return p.top>=t.bottom&&p.top-t.bottom<12&&p.right<=innerWidth;})()`));
     assert.equal(await evaluate('Boolean(document.querySelector(".basemap-chip"))'),false);
-    assert(await evaluate('!document.querySelector("[data-basemap-id=esri-token]") && !document.querySelector(".basemap-picker__filter") && document.querySelectorAll("[data-basemap-id]").length===8'));
+    assert(await evaluate(`(() => {
+      const ids = [...document.querySelectorAll('[data-basemap-id]')].map(node => node.dataset.basemapId);
+      const expected = ['amap-satellite','esri-public','usgs-imagery','ign-ortho','amap-street','osm','openfreemap-liberty','opentopomap','swisstopo-swissimage','basemap-at-orthofoto','cuzk-orthophoto'];
+      return ids.length === 11 && expected.every(id => ids.includes(id)) && !ids.includes('esri-token') && !document.querySelector('.basemap-picker__filter');
+    })()`), '免费底图目录须包含原8项及3个新增区域来源，不能显示令牌服务');
     assert.deepEqual(await evaluate('[...document.querySelectorAll(".basemap-picker__group h3")].map(e=>e.textContent)'),['卫星与航空影像','街道与路网','地形参考']);
     assert(await evaluate('!["osmfr","osmfr-hot","nasa-gibs","nasa-viirs","esri-clarity","esri-hillshade"].some(id=>document.querySelector(`[data-basemap-id="${id}"]`))'));
-    await command('Input.dispatchMouseEvent',{type:'mouseWheel',...await point('.basemap-picker__list'),deltaX:0,deltaY:400});
+    const pickerWheelPoint = await point('.basemap-picker__list');
+    const pickerCameraBefore = await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
+    await command('Input.dispatchMouseEvent',{type:'mouseWheel',...pickerWheelPoint,deltaX:0,deltaY:400});
+    await pause(250);
+    assert(await evaluate('document.querySelector(".basemap-picker__list").scrollTop>0'), '底图目录的滚轮应滚动列表');
+    assert.deepEqual(await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})'),pickerCameraBefore,'底图目录内滚轮不能缩放或平移地图');
+    const sideWheelPoint = await evaluate(`(() => {
+      const panel = document.querySelector('.side-panel');
+      const node = [...panel.querySelectorAll('*')].filter(item => {
+        const style = getComputedStyle(item), rect = item.getBoundingClientRect();
+        return rect.width > 40 && rect.height > 40 && item.scrollHeight > item.clientHeight + 8 && ['auto','scroll'].includes(style.overflowY);
+      }).sort((a,b) => a.clientHeight-b.clientHeight)[0];
+      if (!node) throw new Error('侧栏没有可滚动列表');
+      const originalScrollTop = node.scrollTop;
+      node.scrollTop = 0;
+      node.setAttribute('data-wheel-probe-sidebar','');
+      const rect = node.getBoundingClientRect();
+      return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2),originalScrollTop};
+    })()`);
+    const sideCameraBefore = await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
+    await command('Input.dispatchMouseEvent',{type:'mouseWheel',x:sideWheelPoint.x,y:sideWheelPoint.y,deltaX:0,deltaY:180});
+    await pause(250);
+    const sideWheelResult = await evaluate(`(() => {
+      const panel = document.querySelector('.side-panel');
+      const node = panel.querySelector('[data-wheel-probe-sidebar]');
+      const result = {scrollTop:node?.scrollTop ?? 0,camera:{zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()}};
+      if (node) node.scrollTop = ${sideWheelPoint.originalScrollTop};
+      node?.removeAttribute('data-wheel-probe-sidebar');
+      return result;
+    })()`);
+    assert.deepEqual(sideWheelResult.camera,sideCameraBefore,'侧栏滚轮不能缩放或平移地图');
+    assert(sideWheelResult.scrollTop>0,`侧栏滚轮未滚动列表：${JSON.stringify(sideWheelPoint)}`);
     await fill('.basemap-picker__search input','Esri');
-    assert(await evaluate('document.querySelectorAll("[data-basemap-id]").length===1 && Boolean(document.querySelector("[data-basemap-id=esri-public]"))'));
+    assert(await evaluate('document.querySelectorAll("[data-basemap-id]").length>=1 && Boolean(document.querySelector("[data-basemap-id=esri-public]"))'));
     assert.equal(await evaluate('document.querySelector(".basemap-picker__list").scrollTop'),0);
     await fill('.basemap-picker__search input','NASA');
     assert(await evaluate('Boolean(document.querySelector(".basemap-picker__empty")) && document.querySelectorAll("[data-basemap-id]").length===0'));
     await fill('.basemap-picker__search input','');
-    check('底图目录精简与分类', '8个常用公开来源按影像、路网、地形分类，重复与低分辨率来源移除；检索复位滚动位置');
+    check('免费底图目录与分类', '保留原8个免费来源并容纳新增区域来源，按影像、路网、地形分类；目录滚轮只滚列表，检索复位滚动位置');
     await screenshot('curated-basemap-catalog.png');
     const beforeInvalidToken=await evaluate('window.__ROAD_WORKBENCH__.getProject().output');
     await click('.basemap-picker__tabs [role="tab"]:nth-child(2)');

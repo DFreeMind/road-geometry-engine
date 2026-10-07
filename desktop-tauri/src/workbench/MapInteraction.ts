@@ -22,32 +22,19 @@ export function installPageZoomGuard(target: Window) {
   };
 }
 
-/** 浏览器不提供设备名称，使用像素精度、方向和最近的手势判别，离散滚轮保留原生缩放。 */
+/** 垂直滚动统一缩放；仅纯水平滚动用于平移，Ctrl 手势表示捏合缩放。 */
 export function wheelIntent(
   event: Pick<WheelEvent, "ctrlKey" | "deltaMode" | "deltaX" | "deltaY">,
-  recentPan = false,
 ): "pinch" | "pan" | "zoom" {
   if (event.ctrlKey) return "pinch";
-  const discreteWheel =
-    Number.isInteger(event.deltaY) &&
-    (Math.abs(event.deltaY) % 100 === 0 || Math.abs(event.deltaY) % 120 === 0);
-  if (
-    event.deltaMode === 0 &&
-    (event.deltaX !== 0 ||
-      !Number.isInteger(event.deltaY) ||
-      (Math.abs(event.deltaY) < 50 && event.deltaY !== 0) ||
-      (recentPan && !discreteWheel))
-  )
-    return "pan";
-  return "zoom";
+  return event.deltaY === 0 && event.deltaX !== 0 ? "pan" : "zoom";
 }
 
 export function installMapWheelHandling(map: Map, dragging: () => boolean) {
-  let lastPan = -Infinity;
   let frame: number | undefined;
   let pending:
     | {
-        intent: "pan" | "pinch";
+        intent: "pan" | "pinch" | "zoom";
         x: number;
         y: number;
         clientX: number;
@@ -88,20 +75,13 @@ export function installMapWheelHandling(map: Map, dragging: () => boolean) {
     if (event.target !== canvas) return;
     if (!Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY))
       return;
-    const intent = wheelIntent(event, performance.now() - lastPan < 250);
-    if (intent === "zoom" && !dragging()) {
-      flush();
-      return;
-    }
+    const intent = wheelIntent(event);
     event.preventDefault();
     event.stopImmediatePropagation();
     if (dragging()) {
       clearFrame();
       pending = undefined;
       return;
-    }
-    if (intent === "pan") {
-      lastPan = performance.now();
     }
     if (pending && pending.intent !== intent) flush();
     // 高频触控板事件合并到下一帧，避免每个事件都重绘及同步工程视图。
@@ -113,7 +93,7 @@ export function installMapWheelHandling(map: Map, dragging: () => boolean) {
           ? canvas.clientHeight
           : 1);
     pending = {
-      intent: intent as "pan" | "pinch",
+      intent,
       x: (pending?.x ?? 0) + event.deltaX,
       y: (pending?.y ?? 0) + delta,
       clientX: event.clientX,

@@ -12,12 +12,15 @@ import {
 } from "../src/workbench/basemaps";
 
 describe("底图目录与服务配置", () => {
-  it("按用途展示八个常用预设并把影像排在前面", () => {
+  it("按用途展示十一个常用预设并把影像排在前面", () => {
     expect(BASEMAP_PRESETS.map(({ id }) => id)).toEqual([
       "amap-satellite",
       "esri-public",
       "usgs-imagery",
+      "swisstopo-swissimage",
+      "basemap-at-orthofoto",
       "ign-ortho",
+      "cuzk-orthophoto",
       "amap-street",
       "osm",
       "openfreemap-liberty",
@@ -32,6 +35,16 @@ describe("底图目录与服务配置", () => {
     expect(createPresetConfig("esri-public").displayCrs).toBe("WGS84");
     expect(createPresetConfig("amap-satellite").group).toBe("卫星与航空影像");
     expect(createPresetConfig("opentopomap").group).toBe("地形参考");
+    expect(createPresetConfig("swisstopo-swissimage").url).toContain(
+      "/3857/{z}/{x}/{y}.jpeg",
+    );
+    expect(createPresetConfig("basemap-at-orthofoto").url).toContain(
+      "/google3857/{z}/{y}/{x}.jpeg",
+    );
+    expect(createPresetConfig("cuzk-orthophoto").sourceType).toBe("wms");
+    expect(createPresetConfig("cuzk-orthophoto").url).toContain(
+      "BBOX={bbox-epsg-3857}",
+    );
   });
 
   it("为每个常用预设提供简短统一的用途与来源元数据", () => {
@@ -39,7 +52,10 @@ describe("底图目录与服务配置", () => {
       "amap-satellite",
       "esri-public",
       "usgs-imagery",
+      "swisstopo-swissimage",
+      "basemap-at-orthofoto",
       "ign-ortho",
+      "cuzk-orthophoto",
       "amap-street",
       "osm",
       "openfreemap-liberty",

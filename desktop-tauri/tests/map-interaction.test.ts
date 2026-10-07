@@ -60,47 +60,30 @@ describe("地图设备滚动意图", () => {
       wheelIntent({ ctrlKey: true, deltaMode: 0, deltaX: 0, deltaY: 120 }),
     ).toBe("pinch");
   });
-  it("精细像素滚动和横向滚动用于平移", () => {
-    for (const [deltaX, deltaY] of [
-      [0, 2.5],
-      [18, 120],
-      [0, -12],
-    ]) {
+  it("任意幅度的垂直滚动都缩放，纯水平滚动用于平移", () => {
+    for (const deltaY of [2.5, -12, 86.5, 120]) {
       expect(
-        wheelIntent({ ctrlKey: false, deltaMode: 0, deltaX, deltaY }),
-      ).toBe("pan");
+        wheelIntent({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY }),
+      ).toBe("zoom");
     }
+    expect(
+      wheelIntent({ ctrlKey: false, deltaMode: 0, deltaX: 18, deltaY: 0 }),
+    ).toBe("pan");
+    expect(
+      wheelIntent({ ctrlKey: false, deltaMode: 0, deltaX: 18, deltaY: 0.25 }),
+    ).toBe("zoom");
   });
-  it("普通离散滚轮及行单位滚动保留原生缩放", () => {
+  it("行单位及页面单位垂直滚动也缩放", () => {
     for (const [deltaMode, deltaY] of [
       [0, 120],
       [0, -100],
       [1, 3],
+      [2, 1],
     ]) {
       expect(
         wheelIntent({ ctrlKey: false, deltaMode, deltaX: 0, deltaY }),
       ).toBe("zoom");
     }
-  });
-  it("高速小数像素滚动与平移惯性不会突然切成缩放", () => {
-    expect(
-      wheelIntent({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 86.5 }),
-    ).toBe("pan");
-    expect(
-      wheelIntent(
-        { ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 80 },
-        true,
-      ),
-    ).toBe("pan");
-    expect(
-      wheelIntent(
-        { ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 120 },
-        true,
-      ),
-    ).toBe("zoom");
-    expect(
-      wheelIntent({ ctrlKey: false, deltaMode: 1, deltaX: 0, deltaY: 3 }, true),
-    ).toBe("zoom");
   });
 });
 
@@ -177,16 +160,29 @@ describe("地图触控板事件调度", () => {
       },
     };
   }
-  it("一帧合并双指平移而不是逐事件重绘", () => {
+  it("一帧合并纯水平滚动平移而不是逐事件重绘", () => {
     const t = setup();
-    t.send({ deltaX: 3, deltaY: 5 });
-    t.send({ deltaX: 4, deltaY: 6 });
+    t.send({ deltaX: 3, deltaY: 0 });
+    t.send({ deltaX: 4, deltaY: 0 });
     expect(t.map.panBy).not.toHaveBeenCalled();
     expect(t.frames.size).toBe(1);
     t.render();
-    expect(t.map.panBy).toHaveBeenCalledExactlyOnceWith([7, 11], {
+    expect(t.map.panBy).toHaveBeenCalledExactlyOnceWith([7, 0], {
       duration: 0,
     });
+    t.cleanup();
+  });
+  it("精细垂直滚动缩放并以指针位置为锚点", () => {
+    const t = setup();
+    t.send({ deltaY: 2.5 });
+    t.send({ deltaY: 2.5 });
+    expect(t.map.zoomTo).not.toHaveBeenCalled();
+    t.render();
+    expect(t.map.zoomTo).toHaveBeenLastCalledWith(9.95, {
+      around: [40, 40],
+      duration: 0,
+    });
+    expect(t.map.panBy).not.toHaveBeenCalled();
     t.cleanup();
   });
   it("捏合双向缩放、指针锚点和最大级别有界", () => {
@@ -213,20 +209,27 @@ describe("地图触控板事件调度", () => {
     });
     t.cleanup();
   });
-  it("离散鼠标滚轮和浮层事件不被接管", () => {
+  it("离散滚轮接管缩放，浮层滚动保持原样", () => {
     const t = setup();
-    expect(t.send({ deltaY: 120 }).preventDefault).not.toHaveBeenCalled();
+    expect(t.send({ deltaY: 120 }).preventDefault).toHaveBeenCalledOnce();
+    t.render();
+    expect(t.map.zoomTo).toHaveBeenLastCalledWith(9, {
+      around: [40, 40],
+      duration: 0,
+    });
     expect(t.send({ target: {} }).preventDefault).not.toHaveBeenCalled();
-    expect(t.frames.size).toBe(0);
     t.cleanup();
   });
-  it("开始拖点后丢弃待执行手势，卸载取消动画帧", () => {
+  it("拖点期间抑制垂直缩放和捏合，卸载取消动画帧", () => {
     const t = setup();
     t.send();
     t.setDragging();
     t.render();
     expect(t.map.panBy).not.toHaveBeenCalled();
+    expect(t.map.zoomTo).not.toHaveBeenCalled();
+    expect(t.send().preventDefault).toHaveBeenCalledOnce();
     expect(t.send({ ctrlKey: true }).preventDefault).toHaveBeenCalledOnce();
+    expect(t.frames.size).toBe(0);
     t.cleanup();
     expect(t.frames.size).toBe(0);
     expect(t.container.removeEventListener).toHaveBeenCalledOnce();
