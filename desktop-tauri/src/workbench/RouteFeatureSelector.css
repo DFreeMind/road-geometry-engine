@@ -11,6 +11,10 @@
 }
 
 .route-feature-selector {
+  --route-accent: #176fc1;
+  --route-accent-strong: #145b9b;
+  --route-focus: #287bc4;
+  --route-border: #d2dce7;
   position: relative;
   display: flex;
   flex: 1;
@@ -217,7 +221,7 @@
 .route-feature-selector__mode button[aria-pressed="true"] {
   border-color: #d2e1f0;
   background: #fff;
-  color: #145b9b;
+  color: var(--route-accent-strong);
   box-shadow: 0 1px 2px rgb(22 49 77 / 8%);
 }
 
@@ -239,7 +243,7 @@
 .route-feature-selector textarea {
   box-sizing: border-box;
   min-height: 32px;
-  border: 1px solid #d2dce7;
+  border: 1px solid var(--route-border);
   border-radius: 5px;
   padding: 6px 8px;
   background: #fff;
@@ -257,10 +261,20 @@
 }
 
 .route-feature-selector .button {
-  min-height: 30px;
+  min-height: 32px;
   padding: 5px 10px;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.route-feature-selector .button.primary {
+  border-color: var(--route-accent);
+  background-color: var(--route-accent);
+}
+
+.route-feature-selector button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .route-feature-selector__toolbar .button,
@@ -573,8 +587,18 @@
 
 .route-feature-selector
   :is(button, input, select, textarea, summary):focus-visible {
-  outline: 2px solid #3084d7;
+  outline: 2px solid var(--route-focus);
   outline-offset: 2px;
+}
+
+.route-feature-selector .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 @media (max-width: 760px) {

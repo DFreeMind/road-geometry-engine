@@ -7,6 +7,7 @@
 | 技术架构与目录职责 | [当前架构](architecture.md) |
 | 环境、构建、启动、验证 | [开发指南](development.md) |
 | 工作台功能与待完善范围 | [能力清单](workbench-capabilities.md) |
+| 蓝白 UI 与交互精修 | [本轮改造与验证记录](ui-blue-white-refinement-20261007.md) |
 | 引擎输入、输出和限制 | [本地引擎协议](engine-interface.md) |
 | 数据、路线选择与属性表 | [路线选择](route-selection-workflow.md)、[属性表](route-attribute-table.md) |
 | 批量生成及性能边界 | [批量生成](source-batch-generation.md)、[渲染性能](map-render-performance.md) |

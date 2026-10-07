@@ -364,8 +364,30 @@
   margin-top: 4px;
 }
 .source-browser {
+  --source-accent: var(--accent, #176fc1);
+  --source-accent-strong: #145b9b;
+  --source-focus: #287bc4;
+  --source-border: #cfdae6;
   gap: 11px;
   grid-template-columns: minmax(0, 1fr);
+}
+.source-browser input:not([type="checkbox"]),
+.source-browser select {
+  min-height: 32px;
+}
+.source-browser button:not(.icon-button) {
+  min-height: 32px;
+}
+.source-browser .source-tools__primary {
+  background: var(--source-accent);
+}
+.source-browser button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.source-browser :is(button, input, select, summary):focus-visible {
+  outline: 2px solid var(--source-focus);
+  outline-offset: 2px;
 }
 .source-browser__heading {
   display: flex;
@@ -376,7 +398,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #255e96;
+  color: var(--source-accent-strong);
 }
 .source-browser__heading button,
 .connection-manager__actions button,
@@ -384,7 +406,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid #dce6ef;
+  border: 1px solid var(--source-border);
   border-radius: 6px;
   background: #f8fbfe;
   color: #355878;
@@ -459,7 +481,7 @@
   justify-self: start;
   border-radius: 999px;
   padding: 4px 8px;
-  color: #245f94;
+  color: var(--source-accent-strong);
   background: #edf5fd;
   font-size: 11px;
   font-weight: 600;

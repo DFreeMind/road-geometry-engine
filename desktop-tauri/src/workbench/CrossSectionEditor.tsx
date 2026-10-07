@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import type { RouteSection } from "../domain";
 import { NumericField } from "./EditorFields";
+import {
+  MAX_SECTION_LANES,
+  MAX_SECTION_WIDTH_M,
+  sectionFormIssue,
+} from "./sectionFormValidation";
 import "./CrossSectionEditor.css";
 
 type Side = "left" | "right";
@@ -9,8 +14,8 @@ type Props = {
   onChange: (next: RouteSection) => void;
 };
 
-const MAX_LANES = 8;
-const MAX_WIDTH_M = 200;
+const MAX_LANES = MAX_SECTION_LANES;
+const MAX_WIDTH_M = MAX_SECTION_WIDTH_M;
 const laneDefault = 3.5;
 const sideKeys = {
   left: {
@@ -389,17 +394,9 @@ export function CrossSectionEditor({ section, onChange }: Props) {
           <em>铺装 + 中央隔离带 + 两侧边坡</em>
         </div>
       </div>
-      {(total > MAX_WIDTH_M ||
-        section.left_lanes.length + section.right_lanes.length === 0) && (
+      {sectionFormIssue(section) && (
         <div className="cross-section__validation" role="alert">
-          {total > MAX_WIDTH_M && (
-            <span>
-              总水平投影宽度不得超过 {MAX_WIDTH_M} m，请调整横断面宽度。
-            </span>
-          )}
-          {section.left_lanes.length + section.right_lanes.length === 0 && (
-            <span>至少需要设置一条车道。</span>
-          )}
+          <span>{sectionFormIssue(section)}</span>
         </div>
       )}
 
@@ -417,8 +414,33 @@ export function CrossSectionEditor({ section, onChange }: Props) {
               type="button"
               role="tab"
               aria-selected={active === tab}
+              tabIndex={active === tab ? 0 : -1}
               className={active === tab ? "is-active" : ""}
               onClick={() => setActive(tab)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229)
+                  return;
+                const tabs = ["left", "center", "right"] as const;
+                const index = tabs.indexOf(tab);
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? 2
+                      : event.key === "ArrowRight"
+                        ? (index + 1) % 3
+                        : event.key === "ArrowLeft"
+                          ? (index + 2) % 3
+                          : null;
+                if (next === null) return;
+                event.preventDefault();
+                setActive(tabs[next]);
+                (
+                  event.currentTarget.parentElement?.querySelectorAll("button")[
+                    next
+                  ] as HTMLButtonElement
+                )?.focus();
+              }}
             >
               {label}
             </button>

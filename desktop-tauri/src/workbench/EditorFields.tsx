@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEditorValidation } from "./EditorValidation";
 import "./EditorFields.css";
 
 type NumericFieldProps = {
@@ -122,16 +123,24 @@ export function NumericField({
   const [draft, setDraft] = useState(() =>
     formatNumericDraft(value, precision),
   );
-  const [error, setError] = useState("");
   const [focused, setFocused] = useState(false);
   const [edited, setEdited] = useState(false);
+  const errorId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const transactionRef = useRef(beginNumericDraftTransaction(value));
+  const { setFieldInvalid, unregisterField } = useEditorValidation();
+  const parsedDraft = parseNumericDraft(draft, { min, max, nullable });
+  const draftError = parsedDraft.ok ? "" : parsedDraft.error;
 
   useEffect(() => {
-    if (!focused && !error && !edited)
+    if (!focused && !draftError && !edited)
       setDraft(formatNumericDraft(value, precision));
-  }, [focused, value, precision, error, edited]);
+  }, [focused, value, precision, draftError, edited]);
+
+  useLayoutEffect(() => {
+    setFieldInvalid(errorId, Boolean(draftError));
+    return () => unregisterField(errorId);
+  }, [draftError, errorId, setFieldInvalid, unregisterField]);
 
   const commit = () => {
     const resolution = resolveNumericDraftTransaction(
@@ -140,11 +149,7 @@ export function NumericField({
       { min, max, nullable },
     );
     transactionRef.current = resolution.transaction;
-    if (resolution.status === "error") {
-      setError(resolution.error);
-      return;
-    }
-    setError("");
+    if (resolution.status === "error") return;
     setEdited(false);
     if (resolution.status === "commit") onCommit(resolution.value);
   };
@@ -163,9 +168,10 @@ export function NumericField({
           max={max}
           step={step}
           aria-label={label}
-          aria-invalid={Boolean(error)}
+          aria-invalid={Boolean(draftError)}
+          aria-describedby={draftError ? errorId : undefined}
           onFocus={() => {
-            if (!error) {
+            if (!draftError) {
               transactionRef.current = beginNumericDraftTransaction(value);
               setDraft(transactionRef.current.draft);
               setEdited(false);
@@ -181,13 +187,17 @@ export function NumericField({
             );
             setDraft(nextDraft);
             setEdited(true);
-            setError("");
           }}
           onBlur={() => {
             commit();
             setFocused(false);
           }}
           onKeyDown={(event) => {
+            if (
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            )
+              return;
             if (event.key === "Enter") {
               event.preventDefault();
               commit();
@@ -201,16 +211,15 @@ export function NumericField({
               };
               setDraft(formatNumericDraft(value, precision));
               setEdited(false);
-              setError("");
               inputRef.current?.blur();
             }
           }}
         />
         {unit ? <span className="editor-field__unit">{unit}</span> : null}
       </span>
-      {error ? (
-        <span className="editor-field__error" role="alert">
-          {error}
+      {draftError ? (
+        <span className="editor-field__error" id={errorId} role="alert">
+          {draftError}
         </span>
       ) : null}
     </label>
@@ -373,6 +382,11 @@ function StructuredField({
           setEditing(false);
         }}
         onKeyDown={(event) => {
+          if (
+            event.nativeEvent.isComposing ||
+            event.nativeEvent.keyCode === 229
+          )
+            return;
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
             commit();

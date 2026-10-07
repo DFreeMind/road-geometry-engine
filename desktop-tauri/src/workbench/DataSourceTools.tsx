@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { chooseFile as openFile } from "../tauri";
 import "./DataSourceTools.css";
 import { SourceCatalogPicker } from "./SourceCatalogPicker";
+import { isImeComposing } from "./imeKeyboard";
 import {
   ConnectionSessions,
   connectionIdentity,
@@ -1513,7 +1514,7 @@ export function DataSourceTools({
           className="workbench-dialog connection-manager"
           aria-label="数据连接管理"
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
+            if (event.key === "Escape" && !isImeComposing(event.nativeEvent)) {
               event.preventDefault();
               event.stopPropagation();
               if (!busy && !restoringPassword) setManager(false);

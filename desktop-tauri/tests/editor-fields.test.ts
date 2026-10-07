@@ -8,6 +8,10 @@ import {
   resolveNumericDraftTransaction,
   updateSpecificationValue,
 } from "../src/workbench/EditorFields";
+import {
+  setEditorFieldValidity,
+  unregisterEditorField,
+} from "../src/workbench/EditorValidation";
 
 describe("编辑器字段值转换", () => {
   it("数字草稿支持显式空值，并拒绝必填空值", () => {
@@ -36,6 +40,29 @@ describe("编辑器字段值转换", () => {
       ok: true,
       value: 3.14159,
     });
+  });
+
+  it("提交前跟踪实时无效草稿，并在修复后清除字段状态", () => {
+    const invalidDraft = "-";
+    const invalid = !parseNumericDraft(invalidDraft, { min: 0 }).ok;
+    const afterInvalid = setEditorFieldValidity(new Set(), "width", invalid);
+    expect(afterInvalid.has("width")).toBe(true);
+
+    const repairedDraft = "0";
+    const repaired = !parseNumericDraft(repairedDraft, { min: 0 }).ok;
+    const afterRepair = setEditorFieldValidity(afterInvalid, "width", repaired);
+    expect(afterRepair.has("width")).toBe(false);
+    expect(afterInvalid.has("width")).toBe(true);
+  });
+
+  it("移除无效字段时保留其他仍挂载字段的状态", () => {
+    const invalidFields = setEditorFieldValidity(
+      setEditorFieldValidity(new Set(), "width", true),
+      "slope",
+      true,
+    );
+    const remaining = unregisterEditorField(invalidFields, "width");
+    expect([...remaining]).toEqual(["slope"]);
   });
 
   it("显示格式不改变源值，并仅通过用户草稿产生数值", () => {

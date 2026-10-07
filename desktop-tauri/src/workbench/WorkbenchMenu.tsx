@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "./WorkbenchMenu.css";
+import { isImeComposing } from "./imeKeyboard";
 export type WorkbenchCommand = {
   label: string;
   run: () => void;
@@ -20,6 +21,7 @@ export function WorkbenchMenu({
       if (!root.current?.contains(event.target as Node)) setOpen(null);
     };
     const key = (event: KeyboardEvent) => {
+      if (isImeComposing(event)) return;
       if (event.key === "Escape" && open !== null) {
         event.stopPropagation();
         setOpen(null);
@@ -60,6 +62,7 @@ export function WorkbenchMenu({
             onClick={() => setOpen(open === index ? null : index)}
             onPointerEnter={() => open !== null && setOpen(index)}
             onKeyDown={(event) => {
+              if (isImeComposing(event.nativeEvent)) return;
               if (["ArrowDown", "Enter", " "].includes(event.key)) {
                 event.preventDefault();
                 setOpen(index);
@@ -88,6 +91,7 @@ export function WorkbenchMenu({
               role="menu"
               aria-label={`${group.label}命令`}
               onKeyDown={(event) => {
+                if (isImeComposing(event.nativeEvent)) return;
                 if (event.key === "Tab") setOpen(null);
                 if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
                   event.preventDefault();

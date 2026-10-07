@@ -2904,3 +2904,723 @@ button:focus-visible {
   padding: 5px 0;
   margin-bottom: 6px;
 }
+
+/* 工作台统一主题：集中覆盖历史样式，保持既有布局与面板尺寸。 */
+:root {
+  color-scheme: light;
+  --ink: #1e293b;
+  --sub: #64748b;
+  --muted: #94a3b8;
+  --line: #e5e9f0;
+  --blue: #2563eb;
+  --blue-soft: #eff6ff;
+  --panel: #ffffff;
+  --canvas: #f6f8fb;
+  --radius: 6px;
+  --shadow: 0 4px 14px rgba(30, 41, 59, 0.12);
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  color: var(--ink);
+  background: var(--canvas);
+  font-family:
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui,
+    sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.app-shell {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.app-shell
+  :is(.topbar, .side-panel, .inspector, .panel-heading, .inspector-head) {
+  background: #fff;
+}
+
+.app-shell :is(.topbar, .left-rail, .side-panel, .inspector, .map-statusbar) {
+  border-color: var(--line);
+}
+
+.app-shell .topbar {
+  box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+}
+
+.app-shell .brand-mark {
+  background: var(--blue);
+  color: #fff;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.app-shell
+  :is(
+    .brand strong,
+    .panel-heading h1,
+    .inspector-head h2,
+    .section-head h3,
+    .inspector-section h3,
+    .route-card-top strong,
+    .route-card-stats strong
+  ) {
+  color: var(--ink);
+}
+
+.app-shell
+  :is(
+    .brand span,
+    .eyebrow,
+    .section-intro,
+    .field-label,
+    .route-details span,
+    .route-details small,
+    .micro-note,
+    .file-row,
+    .map-coordinate,
+    .map-status,
+    .cross-section__header p
+  ) {
+  color: var(--sub);
+}
+
+.app-shell .eyebrow {
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.app-shell .left-rail {
+  background: #f6f8fb;
+  border-right: 1px solid var(--line);
+}
+
+.app-shell .rail-item {
+  color: var(--sub);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.app-shell .rail-item:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #edf2f8;
+  color: var(--ink);
+}
+
+.app-shell .rail-item.active,
+.app-shell .rail-item.active:hover:not(:disabled) {
+  background: #eaf1ff;
+  border-color: #c9d9ff;
+  color: #1d4ed8;
+  box-shadow: none;
+}
+
+.app-shell .rail-item.active::before {
+  background: var(--blue);
+  width: 3px;
+}
+
+.app-shell .avatar {
+  background: #eaf1ff;
+  border-color: #c9d9ff;
+  color: #1d4ed8;
+  border-radius: 50%;
+}
+
+.app-shell .section-block {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-shell
+  :is(
+    .count-tag,
+    .crs-pill,
+    .unit-tag,
+    .coordinate-system,
+    .cross-section__unit-tag
+  ) {
+  border-color: var(--line);
+  border-radius: 5px;
+  background: #f8fafc;
+  color: var(--sub);
+}
+
+.app-shell .dropzone {
+  border-color: #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: var(--ink);
+}
+
+.app-shell .dropzone:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: #93b4f8;
+  background: #f3f7ff;
+}
+
+.app-shell .dropzone-icon,
+.app-shell :is(.route-symbol, .generation-icon) {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-radius: 6px;
+}
+
+.app-shell .button {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 10px;
+  gap: 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 550;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.app-shell .button.quiet {
+  color: #475569;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.app-shell .button.quiet:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
+.app-shell .button.outline {
+  color: #334155;
+  background: #fff;
+  border-color: #cbd5e1;
+  box-shadow: none;
+}
+
+.app-shell .button.outline:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: #1d4ed8;
+  background: #f7faff;
+  border-color: #93b4f8;
+}
+
+.app-shell .button.primary {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+  box-shadow: none;
+}
+
+.app-shell .button.primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.app-shell .button.primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background: #1e40af;
+  border-color: #1e40af;
+}
+
+.app-shell .button.danger {
+  color: #b42318;
+  background: #fff;
+  border-color: #f0b8b3;
+}
+
+.app-shell .button.danger:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #fff7f6;
+  border-color: #e89b94;
+}
+
+.app-shell :is(button, [role="button"], summary):focus-visible,
+.app-shell
+  :is(input, select, textarea, [contenteditable="true"]):focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+}
+
+.app-shell .button:focus-visible,
+.app-shell .icon-button:focus-visible,
+.app-shell .rail-item:focus-visible,
+.app-shell .tool-group button:focus-visible,
+.app-shell .map-action:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  box-shadow: none;
+  z-index: 1;
+}
+
+.app-shell :is(button, [role="button"]):disabled,
+.app-shell :is(button, [role="button"])[aria-disabled="true"] {
+  color: #94a3b8;
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.app-shell :is(button, [role="button"]):disabled:hover,
+.app-shell :is(button, [role="button"])[aria-disabled="true"]:hover {
+  color: #94a3b8;
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.app-shell :is(.icon-button, .mini-icon) {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--sub);
+  background: transparent;
+}
+
+.app-shell :is(.icon-button, .mini-icon):hover:not(:disabled) {
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
+.app-shell .text-input,
+.app-shell .editor-field__control,
+.app-shell .unit-input input {
+  min-height: 32px;
+  height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: lining-nums tabular-nums;
+  box-shadow: none;
+}
+
+.app-shell .text-input:focus,
+.app-shell .unit-input input:focus,
+.app-shell .editor-field__control:focus {
+  border-color: var(--blue);
+  outline: 2px solid rgba(37, 99, 235, 0.2);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.app-shell :is(.text-input, .editor-field__control)[aria-invalid="true"],
+.app-shell :is(.text-input, .editor-field__control):invalid {
+  border-color: #dc2626;
+  background-color: #fffafa;
+}
+
+.app-shell :is(.field-error, .editor-field__error, [role="alert"].field-error) {
+  color: #b42318;
+}
+
+.app-shell :is(.mapping-hint, .compat-note, .cross-section__summary > div) {
+  border-color: var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: var(--sub);
+}
+
+.app-shell :is(.tool-group, .map-actions) {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(30, 41, 59, 0.08);
+}
+
+.app-shell .tool-group button,
+.app-shell .map-action {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #475569;
+  background: transparent;
+}
+
+.app-shell .tool-group button:hover:not(:disabled),
+.app-shell .map-action:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
+.app-shell .tool-group button.selected,
+.app-shell .map-action.selected,
+.app-shell .tool-group button[aria-pressed="true"],
+.app-shell .map-action[aria-pressed="true"] {
+  color: #1d4ed8;
+  background: #eaf1ff;
+  border-color: #c9d9ff;
+}
+
+.app-shell .tool-group button:disabled:hover,
+.app-shell .map-action:disabled:hover {
+  color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.app-shell .toolbar-divider {
+  background: var(--line);
+}
+
+.app-shell .workbench-menubar {
+  background: #fff;
+  border-color: var(--line);
+}
+
+.app-shell .command-menu > button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #475569;
+  background: transparent;
+}
+
+.app-shell .command-menu > button:hover:not(:disabled),
+.app-shell .command-menu > button[aria-expanded="true"] {
+  color: #1d4ed8;
+  border-color: #dbe7ff;
+  background: #eff6ff;
+}
+
+.app-shell .command-popup {
+  border-color: var(--line);
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.app-shell .basemap-picker {
+  border-color: var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.app-shell
+  :is(
+    .basemap-picker__header,
+    .basemap-picker__option,
+    .basemap-picker__local
+  ) {
+  border-color: var(--line);
+}
+
+.app-shell .basemap-picker__tabs button[aria-selected="true"],
+.app-shell .basemap-picker__segmented button.is-active {
+  border-color: #c9d9ff;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.app-shell
+  :is(
+    .route-map-card,
+    .legend-card,
+    .generation-card,
+    .basemap-popover,
+    .basemap-chip
+  ) {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(30, 41, 59, 0.08);
+}
+
+.app-shell .route-map-card {
+  border-top: 1px solid var(--line);
+}
+
+.app-shell .map-statusbar {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
+}
+
+.app-shell .top-actions {
+  gap: 6px;
+}
+
+.app-shell .project-title {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell .project-title > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell :is(.workbench-context, .inspector-context) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--sub);
+}
+
+.app-shell .workbench-context {
+  padding: 10px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.app-shell .workbench-context > div {
+  min-width: 0;
+}
+.app-shell .workbench-context strong {
+  display: block;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell .workbench-context small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.app-shell .inspector-context {
+  padding: 9px;
+  border: 1px solid #dbe7ff;
+  border-radius: 6px;
+  background: var(--blue-soft);
+  line-height: 1.5;
+}
+.app-shell .road-panel > .generation-warning {
+  margin-bottom: 8px;
+}
+.app-shell textarea.editor-field__json {
+  min-height: 104px;
+  height: auto;
+}
+.app-shell .is-spinning {
+  animation: workbench-spin 1s linear infinite;
+}
+@keyframes workbench-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-shell .generation-progress {
+  min-width: 0;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+.app-shell .generation-progress progress {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--blue);
+}
+.app-shell .generation-copy:has(.generation-progress) {
+  max-width: 240px;
+}
+
+.app-shell .generation-warning {
+  padding: 7px 9px;
+  border: 1px solid #f3d39a;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-shell .generation-warning[data-tone="error"] {
+  border-color: #f0b8b3;
+  background: #fff7f6;
+  color: #b42318;
+}
+
+.app-shell .export-format-list {
+  display: grid;
+  gap: 8px;
+}
+
+.app-shell .export-format-list > button {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #334155;
+  background: #fff;
+  text-align: left;
+  height: auto;
+  min-height: 64px;
+}
+.app-shell .export-format-list > button > span {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+.app-shell .export-format-list small {
+  color: var(--sub);
+  font-weight: 400;
+}
+
+.app-shell .export-format-list > button:hover:not(:disabled) {
+  border-color: #93b4f8;
+  background: #f7faff;
+}
+
+@media (max-width: 1100px) {
+  .app-shell .top-actions {
+    gap: 4px;
+  }
+
+  .app-shell .top-actions .button {
+    padding: 0 8px;
+    font-size: 0;
+    gap: 0;
+  }
+}
+
+.app-shell :is(.panel-tabs, .cross-section__tabs) {
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f1f5f9;
+}
+
+.app-shell :is(.panel-tabs, .cross-section__tabs) button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #475569;
+  background: transparent;
+}
+
+.app-shell :is(.panel-tabs, .cross-section__tabs) button[aria-selected="true"] {
+  color: #1d4ed8;
+  border-color: #dbe7ff;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(30, 41, 59, 0.08);
+}
+
+.app-shell
+  :is(
+    .road-tabs button[aria-selected="true"],
+    .panel-tabs button[aria-selected="true"]
+  ) {
+  font-weight: 600;
+}
+
+.app-shell :is(.template-card, .instance-row) {
+  border-color: var(--line);
+  border-radius: 6px;
+}
+
+.app-shell .instance-row.active,
+.app-shell .template-card.active {
+  border-color: #93b4f8;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.app-shell .template-menu > div,
+.app-shell .command-popup,
+.app-shell .map-context {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.app-shell
+  :is(.template-menu button, .command-popup button, .map-context button) {
+  min-height: 32px;
+  border-radius: 4px;
+  color: #334155;
+  background: transparent;
+}
+
+.app-shell
+  :is(
+    .template-menu button,
+    .command-popup button,
+    .map-context button
+  ):hover:not(:disabled) {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.app-shell .workbench-dialog {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
+}
+
+.app-shell :is(.dialog-title, .dialog-actions) {
+  border-color: var(--line);
+  background: #fff;
+}
+
+.app-shell .dialog-title h2 {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.app-shell .dialog-backdrop {
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.app-shell .field-error,
+.app-shell .editor-field__error {
+  font-size: 12px;
+}
+
+.app-shell .cross-section {
+  border-color: var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.app-shell .cross-section__diagram-wrap {
+  border-color: var(--line);
+  border-radius: 6px;
+}
+
+.app-shell .lucide {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  stroke-width: 1.75;
+}
+
+.app-shell
+  :is(.maplibregl-ctrl-group, .maplibregl-ctrl-scale, .maplibregl-ctrl-attrib) {
+  border-color: var(--line);
+  color: var(--sub);
+  background-color: rgba(255, 255, 255, 0.96);
+}
+
+.app-shell :is(input, select, textarea):disabled,
+.app-shell :is(input, select, textarea)[aria-disabled="true"] {
+  color: #94a3b8;
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

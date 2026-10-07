@@ -9,6 +9,7 @@ import {
   type BasemapConfig,
 } from "./basemaps";
 import "./BasemapPicker.css";
+import { isImeComposing } from "./imeKeyboard";
 
 export type { BasemapConfig } from "./basemaps";
 
@@ -52,6 +53,7 @@ export function BasemapPicker({
       }
     };
     const escape = (event: KeyboardEvent) => {
+      if (isImeComposing(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

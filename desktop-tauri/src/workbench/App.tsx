@@ -39,6 +39,9 @@ import type * as GeoJSON from "geojson";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   Activity,
+  CircleAlert,
+  CircleCheck,
+  LoaderCircle,
   ArrowDownToLine,
   ArrowUpFromLine,
   Baseline,
@@ -150,6 +153,12 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { NumericField, SpecificationForm } from "./EditorFields";
+import {
+  EditorValidationProvider,
+  useEditorValidation,
+} from "./EditorValidation";
+import { sectionFormIssue } from "./sectionFormValidation";
+import { isImeComposing } from "./imeKeyboard";
 import { CrossSectionEditor } from "./CrossSectionEditor";
 import { WorkbenchMenu } from "./WorkbenchMenu";
 import { AlongRouteTools } from "./AlongRouteTools";
@@ -202,6 +211,35 @@ const sourceDefaults = (project: RoadProject) => ({
       ? defaultProject().section
       : project.section),
 });
+
+/** 重生成沿用已保存的人工规则，不提供未经实现的全局覆盖操作。 */
+function hasManualSurfaceEdits(project: RoadProject, allSources = false) {
+  if (!allSources && !project.active_source_ref)
+    return Boolean(
+      project.surface_original_section ||
+        (
+          project.surface_component_exclusions as
+            | ComponentSelector[]
+            | undefined
+        )?.length,
+    );
+  const active = project.active_source_ref as
+    | { dataset_id: string; feature_key: string }
+    | undefined;
+  return ((project.vector_basemaps as SourceDataset[] | undefined) ?? []).some(
+    (dataset) =>
+      (allSources || dataset.id === active?.dataset_id) &&
+      Object.entries(dataset.route_overrides ?? {}).some(
+        ([key, edit]) =>
+          (allSources || key === active?.feature_key) &&
+          Boolean(
+            edit.section ||
+              Object.keys(edit.part_sections ?? {}).length ||
+              edit.component_exclusions?.length,
+          ),
+      ),
+  );
+}
 function retainUnchangedSourceResults(
   current: RoadProject,
   next: RoadProject,
@@ -343,6 +381,15 @@ function singleSurfaceExclusions(project: RoadProject): ComponentSelector[] {
 }
 
 export function App() {
+  return (
+    <EditorValidationProvider>
+      <Workbench />
+    </EditorValidationProvider>
+  );
+}
+
+function Workbench() {
+  const { hasInvalidFields, isInvalid } = useEditorValidation();
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const mapReady = useRef(false);
@@ -450,6 +497,11 @@ export function App() {
       : "浏览器预览 · 生成与文件操作需在桌面端运行",
   });
   const [working, setWorking] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [regenerateRequest, setRegenerateRequest] = useState<{
+    kind: "current" | "batch";
+    retryTargets?: GenerationTarget[];
+  } | null>(null);
   const [batchProgress, setBatchProgress] = useState<{
     completed: number;
     total: number;
@@ -1069,6 +1121,8 @@ export function App() {
   }, []);
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229 || event.defaultPrevented)
+        return;
       if (event.key === "Escape") {
         if (
           document.querySelector(
@@ -3073,7 +3127,10 @@ export function App() {
     }
   }
 
-  async function generateAllSources(retryTargets?: GenerationTarget[]) {
+  async function generateAllSources(
+    retryTargets?: GenerationTarget[],
+    preserveConfirmed = false,
+  ) {
     if (!isTauri()) {
       setStatus("整体生成需要本地桌面引擎。", "warn");
       return;
@@ -3084,7 +3141,18 @@ export function App() {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve()),
     );
+    if (
+      isInvalid() ||
+      document.querySelector('.editor-field [aria-invalid="true"]')
+    ) {
+      setStatus("请先修正表单错误，再生成参与路线。", "warn");
+      return;
+    }
     const input = projectRef.current;
+    if (!preserveConfirmed && hasManualSurfaceEdits(input, true)) {
+      setRegenerateRequest({ kind: "batch", retryTargets });
+      return;
+    }
     const datasets = normalizeSourceDatasets(
       input.vector_basemaps,
       sourceDefaults(input),
@@ -3710,7 +3778,7 @@ export function App() {
       }
     }
   }
-  async function generate() {
+  async function generate(preserveConfirmed = false) {
     if (!ready) {
       setStatus("请先导入或绘制至少两个路线点。", "warn");
       return;
@@ -3732,8 +3800,17 @@ export function App() {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve()),
     );
-    if (document.querySelector('.editor-field [aria-invalid="true"]')) {
-      setStatus("请先修正表单错误，再生成道路。", "warn");
+    const sectionIssue = sectionFormIssue(projectRef.current.section);
+    if (
+      isInvalid() ||
+      sectionIssue ||
+      document.querySelector('.editor-field [aria-invalid="true"]')
+    ) {
+      setStatus(sectionIssue ?? "请先修正表单错误，再生成道路。", "warn");
+      return;
+    }
+    if (!preserveConfirmed && hasManualSurfaceEdits(projectRef.current)) {
+      setRegenerateRequest({ kind: "current" });
       return;
     }
     if (jobRef.current) return;
@@ -4208,6 +4285,16 @@ export function App() {
           : projectPath.current
             ? "已保存"
             : "新建项目";
+  const sectionIssue = sectionFormIssue(project.section);
+  const generationDisabledReason = working
+    ? "道路生成任务正在运行"
+    : !isTauri()
+      ? "请在 Tauri 桌面端运行生成"
+      : !ready
+        ? "至少需要两个路线点"
+        : hasInvalidFields
+          ? "请先修正表单中标记的无效数值"
+          : sectionIssue;
   const roadLabel = working
     ? "生成中"
     : validBatchOutput?.results.some(
@@ -4216,12 +4303,12 @@ export function App() {
       ? "批量成果已生成"
       : !ready
         ? "待绘制"
-        : project.output
-          ? "已生成"
-          : roadState === "error"
-            ? "生成失败"
-            : roadState === "changed"
-              ? "需要重新生成"
+        : roadState === "error"
+          ? "生成失败"
+          : stale || roadState === "changed"
+            ? "成果待更新"
+            : project.output
+              ? "已生成"
               : "未生成";
   const toolHint =
     tool === "route"
@@ -4474,7 +4561,7 @@ export function App() {
         {
           label: "生成二维路面",
           shortcut: "F5",
-          disabled: !ready || working || !isTauri(),
+          disabled: Boolean(generationDisabledReason),
           separator: true,
           run: () => void generate(),
         },
@@ -4608,6 +4695,7 @@ export function App() {
             className="button quiet"
             onClick={loadProject}
             aria-label="打开项目"
+            title="打开项目（Ctrl+O）"
           >
             <FolderOpen size={16} />
             打开
@@ -4616,9 +4704,41 @@ export function App() {
             className="button quiet"
             onClick={saveProject}
             aria-label="保存项目"
+            title={
+              saveState === "error"
+                ? "重试保存项目（Ctrl+S）"
+                : "保存项目（Ctrl+S）"
+            }
+            disabled={saveState === "saving"}
           >
             <Save size={16} />
             保存项目
+          </button>
+          <button
+            className="button primary"
+            aria-label="生成当前路线道路"
+            title={generationDisabledReason ?? "生成当前路线道路（F5）"}
+            disabled={Boolean(generationDisabledReason)}
+            onClick={() => void generate()}
+          >
+            {working ? (
+              <LoaderCircle size={18} className="is-spinning" />
+            ) : (
+              <Activity size={18} />
+            )}
+            生成道路
+          </button>
+          <button
+            className="button outline"
+            aria-label="选择成果导出格式"
+            title="导出成果"
+            disabled={
+              working || (!layers.length && !project.manual_facilities.length)
+            }
+            onClick={() => setExportOpen(true)}
+          >
+            <Download size={18} />
+            导出
           </button>
           <span
             className={`environment ${isTauri() ? "native" : ""}`}
@@ -4849,6 +4969,11 @@ export function App() {
               extras={
                 <>
                   <SourceDatasetManager
+                    generationDisabledReason={
+                      hasInvalidFields
+                        ? "请先修正表单中标记的无效数值"
+                        : undefined
+                    }
                     datasets={sourceDatasets}
                     working={working}
                     progress={batchProgress}
@@ -4975,7 +5100,7 @@ export function App() {
                     >
                       <p>任务未完成：{project.source_batch_job_error}</p>
                       <button
-                        disabled={working}
+                        disabled={working || hasInvalidFields}
                         onClick={() => void generateAllSources()}
                       >
                         重新校验并生成
@@ -5004,7 +5129,7 @@ export function App() {
                         定位并修改当前路线
                       </button>
                       <button
-                        disabled={working}
+                        disabled={Boolean(generationDisabledReason)}
                         onClick={() => void generate()}
                       >
                         重试当前路线
@@ -5173,6 +5298,7 @@ export function App() {
                 project={project}
                 update={update}
                 status={status}
+                roadLabel={roadLabel}
                 busy={working}
                 onApplyAuto={(options) => {
                   update((current) => ({ ...current, scene_options: options }));
@@ -5399,8 +5525,9 @@ export function App() {
               <button
                 className={tool === "pan" ? "selected" : ""}
                 onClick={() => setToolMode("pan")}
-                title="选择与平移"
+                title="选择与平移（P）"
                 aria-label="选择与平移"
+                aria-pressed={tool === "pan"}
               >
                 <MousePointer2 size={17} />
               </button>
@@ -5409,6 +5536,7 @@ export function App() {
                 onClick={() => setToolMode("route")}
                 title="绘制路线"
                 aria-label="绘制路线"
+                aria-pressed={tool === "route"}
               >
                 <PenLine size={17} />
               </button>
@@ -5420,6 +5548,7 @@ export function App() {
                 }}
                 title="编辑路面成果：调整宽度、删除组成"
                 aria-label="编辑路面成果"
+                aria-pressed={tool === "surface"}
                 disabled={
                   !layers.some((layer) =>
                     layer.collection.features.some((feature) =>
@@ -5437,6 +5566,7 @@ export function App() {
                 onClick={() => setToolMode("vertex")}
                 title="编辑参考线顶点：单击选择，拖动调整，Delete 删除"
                 aria-label="编辑路线顶点"
+                aria-pressed={tool === "vertex"}
               >
                 <Crosshair size={17} />
               </button>
@@ -5809,7 +5939,15 @@ export function App() {
           </div>
           <div className="generation-card">
             <div className="generation-icon">
-              <Activity size={18} />
+              {working ? (
+                <LoaderCircle size={18} className="is-spinning" />
+              ) : roadState === "error" ? (
+                <CircleAlert size={18} />
+              ) : layers.length && !stale ? (
+                <CircleCheck size={18} />
+              ) : (
+                <Activity size={18} />
+              )}
             </div>
             <div className="generation-copy">
               <strong>{working ? "几何处理中" : "当前路线几何"}</strong>
@@ -5820,27 +5958,39 @@ export function App() {
                     ? roadLabel
                     : "先准备参考线与横断面"}
               </span>
+              {working && batchProgress && (
+                <div className="generation-progress" aria-label="道路生成进度">
+                  <progress
+                    max={Math.max(batchProgress.total, 1)}
+                    value={batchProgress.completed}
+                  />
+                  <span>
+                    {batchProgress.completed} / {batchProgress.total} 个线部件
+                  </span>
+                </div>
+              )}
             </div>
             {working ? (
-              <button className="button danger" onClick={cancelGenerate}>
+              <button
+                className="button outline"
+                onClick={cancelGenerate}
+                title="停止生成；迟到结果不会写入工程"
+              >
                 <X size={15} />
-                取消
+                停止
               </button>
             ) : (
               <button
-                className="button primary"
-                disabled={!ready || !isTauri()}
-                onClick={generate}
+                className="button outline"
+                disabled={Boolean(generationDisabledReason)}
+                onClick={() => void generate()}
                 title={
-                  !isTauri()
-                    ? "请在 Tauri 桌面端运行生成"
-                    : !ready
-                      ? "至少需要两个路线点"
-                      : "生成当前编辑路线；整体生成请使用数据面板中的“生成全部参与路线”"
+                  generationDisabledReason ??
+                  "生成当前编辑路线；整体生成请使用数据面板中的“生成全部参与路线”"
                 }
               >
                 <Activity size={15} />
-                生成道路
+                {roadState === "error" ? "重试生成" : "生成道路"}
               </button>
             )}
           </div>
@@ -5874,7 +6024,9 @@ export function App() {
           <div className="inspector-head">
             <div>
               <div className="eyebrow">属性面板</div>
-              <h2>{selected ? "设施属性" : "工程属性"}</h2>
+              <h2>
+                {selected ? "所选设施" : ready ? "当前路线属性" : "工程属性"}
+              </h2>
             </div>
             <button
               className="icon-button"
@@ -5901,6 +6053,85 @@ export function App() {
           )}
         </aside>
       </div>
+      {regenerateRequest && (
+        <Modal
+          title="保留人工修改并重新生成？"
+          onCancel={() => setRegenerateRequest(null)}
+        >
+          <p>
+            影响范围：
+            {regenerateRequest.kind === "current"
+              ? `当前路线「${project.route_id}」`
+              : "所有已加载并参与生成的路线"}
+            。
+          </p>
+          <div className="inspector-context">
+            已检测到人工断面或成果删除规则。本次生成保留这些规则；恢复原规则请在对应成果编辑器中操作。
+          </div>
+          <div className="dialog-actions">
+            <button
+              className="button outline"
+              onClick={() => setRegenerateRequest(null)}
+            >
+              取消
+            </button>
+            <button
+              className="button primary"
+              onClick={() => {
+                const request = regenerateRequest;
+                setRegenerateRequest(null);
+                if (request.kind === "current") void generate(true);
+                else void generateAllSources(request.retryTargets, true);
+              }}
+            >
+              保留人工修改并生成
+            </button>
+          </div>
+        </Modal>
+      )}
+      {exportOpen && (
+        <Modal title="导出成果" onCancel={() => setExportOpen(false)}>
+          <p>选择成果格式，确认文件位置后导出。</p>
+          <div className="export-format-list">
+            <button
+              className="button outline full"
+              onClick={() => {
+                setExportOpen(false);
+                void exportGeoPackage();
+              }}
+            >
+              <Database size={20} />
+              <span>
+                <strong>GeoPackage</strong>
+                <small>保留工程坐标系 · {project.crs}</small>
+              </span>
+              <Download size={18} />
+            </button>
+            <button
+              className="button outline full"
+              onClick={() => {
+                setExportOpen(false);
+                void exportGeoJSON();
+              }}
+            >
+              <FileJson size={20} />
+              <span>
+                <strong>GeoJSON</strong>
+                <small>转换为 WGS84 地理坐标</small>
+              </span>
+              <Download size={18} />
+            </button>
+          </div>
+          <div className="dialog-actions">
+            <button
+              className="button outline"
+              onClick={() => setExportOpen(false)}
+            >
+              取消
+            </button>
+          </div>
+        </Modal>
+      )}
       {layerChoices && (
         <Modal title="选择数据图层" onCancel={() => finishLayerChoice(null)}>
           <p>先选择需要的图层，再读取有界要素快照。</p>
@@ -6353,19 +6584,53 @@ function RoadPanel({
   busy,
   onApplyAuto,
   onClearAuto,
+  roadLabel,
 }: {
   project: RoadProject;
   update: (fn: (current: RoadProject) => RoadProject) => void;
   busy: boolean;
   onApplyAuto: (options: Record<string, unknown>) => void;
   onClearAuto: () => void;
+  roadLabel: string;
   [key: string]: unknown;
 }) {
   const [roadTab, setRoadTab] = useState<"section" | "display" | "along">(
     "section",
   );
+  const { hasInvalidFields } = useEditorValidation();
+  const issue = sectionFormIssue(project.section);
   return (
     <div className="panel-content road-panel">
+      <div className="workbench-context">
+        <Baseline size={18} />
+        <div>
+          <strong title={project.route_id}>
+            {project.route_id || "未命名路线"}
+          </strong>
+          <small>当前路线 · 左右按参考线正向定义</small>
+        </div>
+      </div>
+      {(hasInvalidFields ||
+        issue ||
+        roadLabel === "成果待更新" ||
+        roadLabel === "生成失败") && (
+        <div
+          className="generation-warning"
+          data-tone={
+            hasInvalidFields || issue || roadLabel === "生成失败"
+              ? "error"
+              : "warn"
+          }
+          role="status"
+        >
+          {hasInvalidFields
+            ? "请修正标记的数值，再生成道路。"
+            : (issue ??
+              (roadLabel === "生成失败"
+                ? "生成失败，可修正参数后重试；既有成果保留。"
+                : "参数已修改 · 成果待更新"))}
+        </div>
+      )}
       <div
         className="panel-tabs road-tabs"
         role="tablist"
@@ -6383,8 +6648,32 @@ function RoadPanel({
             id={`road-tab-${id}`}
             role="tab"
             aria-selected={roadTab === id}
+            tabIndex={roadTab === id ? 0 : -1}
             aria-controls={`road-page-${id}`}
             onClick={() => setRoadTab(id)}
+            onKeyDown={(event) => {
+              if (isImeComposing(event.nativeEvent)) return;
+              const tabs = ["section", "display", "along"] as const;
+              const index = tabs.indexOf(id);
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? 2
+                    : event.key === "ArrowRight"
+                      ? (index + 1) % 3
+                      : event.key === "ArrowLeft"
+                        ? (index + 2) % 3
+                        : null;
+              if (next === null) return;
+              event.preventDefault();
+              setRoadTab(tabs[next]);
+              (
+                event.currentTarget.parentElement?.querySelectorAll("button")[
+                  next
+                ] as HTMLButtonElement
+              )?.focus();
+            }}
           >
             {label}
           </button>
@@ -6834,6 +7123,15 @@ function ProjectInspector({
 }) {
   return (
     <div className="inspector-content">
+      {project.route_points.length > 1 && (
+        <div className="inspector-context">
+          <Baseline size={18} />
+          <span>
+            当前路线：{project.route_id || "未命名路线"}
+            。属性修改仅作用于当前路线。
+          </span>
+        </div>
+      )}
       <div className="property-group">
         <div className="property-heading">
           <strong>路线基本信息</strong>
@@ -7430,6 +7728,7 @@ function CommittedTextField({
         setFocused(false);
       }}
       onKeyDown={(e) => {
+        if (isImeComposing(e.nativeEvent)) return;
         if (e.key === "Enter") {
           e.preventDefault();
           e.currentTarget.blur();
@@ -7494,6 +7793,7 @@ function MapContextMenu({
       aria-label="地图操作"
       style={{ left: position.x, top: position.y }}
       onKeyDown={(event) => {
+        if (isImeComposing(event.nativeEvent)) return;
         const buttons = [
           ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
             "button:not(:disabled)",
@@ -7574,6 +7874,7 @@ function Modal({
         aria-modal="true"
         aria-label={title}
         onKeyDown={(event) => {
+          if (isImeComposing(event.nativeEvent)) return;
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();

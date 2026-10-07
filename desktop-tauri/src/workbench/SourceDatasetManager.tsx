@@ -37,6 +37,7 @@ type DatasetFeature = Feature & {
 type SourceDatasetManagerProps = {
   datasets: SourceDataset[];
   working: boolean;
+  generationDisabledReason?: string;
   progress?: {
     completed: number;
     total: number;
@@ -96,6 +97,7 @@ function datasetFeatures(dataset: SourceDataset): DatasetFeature[] {
 export function SourceDatasetManager({
   datasets,
   working,
+  generationDisabledReason,
   progress,
   generatedCounts,
   onAppend,
@@ -165,7 +167,17 @@ export function SourceDatasetManager({
           <button
             type="button"
             className="source-dataset-manager__generate"
-            disabled={working || participatingCount === 0}
+            disabled={
+              working ||
+              participatingCount === 0 ||
+              Boolean(generationDisabledReason)
+            }
+            title={
+              generationDisabledReason ??
+              (participatingCount === 0
+                ? "先加载或勾选参与生成的路线"
+                : "生成所有已加载并参与的路线")
+            }
             onClick={onGenerate}
           >
             <Play size={15} aria-hidden="true" />

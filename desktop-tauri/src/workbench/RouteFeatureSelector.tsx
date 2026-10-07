@@ -4,6 +4,7 @@ import type { SourceCapabilities } from "./sourceAccess";
 import { streamSourcePages } from "./sourceAccess";
 import { compileRouteFilter } from "./routeFilterExpression";
 import { defaultRouteColumnSelection } from "./routeColumnSelection";
+import { isImeComposing } from "./imeKeyboard";
 import "./RouteFeatureSelector.css";
 
 export type RouteFeature = Feature<LineString | MultiLineString>;
@@ -247,7 +248,7 @@ export function RouteFeatureSelector({
     if (!columnsOpen) return;
     columnsSearch.current?.focus();
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || isImeComposing(event)) return;
       event.preventDefault();
       event.stopPropagation();
       setColumnsOpen(false);
@@ -715,7 +716,8 @@ export function RouteFeatureSelector({
               value={serverDraft}
               onChange={(event) => setServerDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void querySource();
+                if (event.key === "Enter" && !isImeComposing(event.nativeEvent))
+                  void querySource();
               }}
               placeholder={"例如 left(\"路线编号\", 3) = 'G10'"}
               disabled={loading}
@@ -830,7 +832,8 @@ export function RouteFeatureSelector({
                 onKeyDown={(event) => {
                   if (
                     (event.ctrlKey || event.metaKey) &&
-                    event.key === "Enter"
+                    event.key === "Enter" &&
+                    !isImeComposing(event.nativeEvent)
                   ) {
                     event.preventDefault();
                     applyExpression();
@@ -1210,6 +1213,11 @@ export function RouteFeatureSelector({
           <button
             type="button"
             className="button primary"
+            aria-describedby={
+              !selectedFeatures.length || loading || submitting
+                ? "route-feature-confirm-reason"
+                : undefined
+            }
             disabled={!selectedFeatures.length || loading || submitting}
             onClick={() => void confirmSelection()}
           >
@@ -1217,6 +1225,15 @@ export function RouteFeatureSelector({
               ? "正在加载到地图…"
               : `加载到地图（${selectedFeatures.length}）`}
           </button>
+          {(!selectedFeatures.length || loading || submitting) && (
+            <span id="route-feature-confirm-reason" className="sr-only">
+              {!selectedFeatures.length
+                ? "请至少选择一条路线后再加载到地图。"
+                : loading
+                  ? "来源读取期间不能加载到地图。"
+                  : "正在加载到地图，请稍候。"}
+            </span>
+          )}
         </div>
       </div>
     </section>

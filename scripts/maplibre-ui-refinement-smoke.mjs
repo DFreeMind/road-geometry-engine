@@ -1,0 +1,216 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+// 在独立 WebView2 工作台中发送真实鼠标和键盘输入，不用 DOM click 或直接修改工程绕过控件。
+const [endpoint, outputDirectory] = process.argv.slice(2);
+const baseline = process.env.ROAD_UI_QA_BASELINE === '1';
+await fs.mkdir(outputDirectory, { recursive: true });
+let target;
+for (let attempt = 0; attempt < 80; attempt++) {
+  const targets = await (await fetch(`${endpoint}/json`)).json();
+  target = targets.find(item => item.type === 'page' && item.url.includes('tauri'));
+  if (target) break;
+  await new Promise(resolve => setTimeout(resolve, 200));
+}
+assert(target?.webSocketDebuggerUrl, '未找到 Tauri 工作台');
+const socket = new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+let sequence = 0;
+const pending = new Map();
+const errors = [];
+socket.onmessage = event => {
+  const message = JSON.parse(event.data);
+  if (message.id) {
+    const handler = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.error) handler?.reject(new Error(JSON.stringify(message.error)));
+    else handler?.resolve(message.result);
+  } else if (message.method === 'Runtime.exceptionThrown') {
+    errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
+  }
+};
+const command = (method, params = {}) => new Promise((resolve, reject) => {
+  const id = ++sequence;
+  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`调试命令超时：${method}`)); }, 15000);
+  pending.set(id, {
+    resolve: value => { clearTimeout(timer); resolve(value); },
+    reject: error => { clearTimeout(timer); reject(error); },
+  });
+  socket.send(JSON.stringify({ id, method, params }));
+});
+const evaluate = async expression => {
+  const result = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+  return result.result.value;
+};
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const waitFor = async (expression, seconds = 30) => {
+  const limit = Date.now() + seconds * 1000;
+  while (Date.now() < limit) { if (await evaluate(expression)) return; await pause(100); }
+  throw new Error(`等待控件状态超时：${expression}`);
+};
+const point = async selector => evaluate(`(() => {
+  const node = document.querySelector(${JSON.stringify(selector)});
+  if (!node || node.disabled || !node.getClientRects().length) throw new Error('控件不可操作：' + ${JSON.stringify(selector)});
+  node.scrollIntoView({block:'nearest',inline:'nearest'});
+  const bounds = node.getBoundingClientRect();
+  return {x:bounds.x+bounds.width/2, y:bounds.y+bounds.height/2};
+})()`);
+const click = async selector => {
+  const position = await point(selector);
+  await command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...position });
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
+  await pause(80);
+};
+const key = async (keyName, code, keyCode, modifiers = 0) => {
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: keyName, code, windowsVirtualKeyCode: keyCode, modifiers });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: keyName, code, windowsVirtualKeyCode: keyCode, modifiers });
+  await pause(60);
+};
+const fill = async (selector, value) => {
+  await click(selector);
+  await key('a', 'KeyA', 65, 2);
+  await command('Input.insertText', { text: String(value) });
+  await pause(100);
+};
+const screenshot = async name => {
+  const result = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  await fs.writeFile(path.join(outputDirectory, name), Buffer.from(result.data, 'base64'));
+};
+const checks = [];
+const check = (name, details) => checks.push({name, passed:true, details});
+const topGenerate = '[aria-label="生成当前路线道路"]';
+const lane = '.road-panel input[aria-label="左侧第 1 条车道宽度"]';
+try {
+  await command('Runtime.enable');
+  await command('Page.enable');
+  await command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await waitFor('Boolean(window.__ROAD_WORKBENCH__ && document.querySelector(".maplibregl-canvas"))');
+  await waitFor('window.__ROAD_WORKBENCH__.getMap()?.isStyleLoaded()');
+  if (baseline) {
+    await click('.generation-card .button.primary');
+    await waitFor('Boolean(window.__ROAD_WORKBENCH__.getProject().output)');
+    await screenshot('before-data-1440.png');
+    await click('.left-rail [aria-label="道路"]');
+    await screenshot('before-road-1440.png');
+    check('基线截图', '1440×900、DPI 1、默认合成路线、独立配置');
+  } else {
+    assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--blue").trim()'), '#2563eb');
+    check('蓝白主题', '主题主色及实际工作台控件');
+    await click(topGenerate);
+    await waitFor('Boolean(window.__ROAD_WORKBENCH__.getProject().output)');
+    await screenshot('after-data-1440.png');
+    check('当前路线生成', '鼠标点击顶部生成，调用真实原生引擎');
+    await click('.left-rail [aria-label="道路"]');
+    await screenshot('after-road-1440.png');
+    const original = await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]');
+    await fill(lane, '-1');
+    await waitFor('document.querySelector(' + JSON.stringify(topGenerate) + ').disabled');
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'), original);
+    await screenshot('invalid-draft.png');
+    check('无效草稿阻止生成', '输入 -1 后未离开输入框即显示错误并禁用生成，已提交参数不变');
+    await key('F5', 'F5', 116);
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]'), original);
+    await click(lane);
+    await key('Escape', 'Escape', 27);
+    await waitFor('!document.querySelector(' + JSON.stringify(topGenerate) + ').disabled');
+    check('错误恢复', 'F5 不绕过无效草稿，Esc 恢复原值并解除禁用');
+    await fill(lane, '3.8');
+    await key('Enter', 'Enter', 13);
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]===3.8');
+    assert(await evaluate('document.body.innerText.includes("成果待更新")'));
+    await key('z', 'KeyZ', 90, 2);
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]===' + original);
+    await key('z', 'KeyZ', 90, 10);
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().section.left_lanes[0]===3.8');
+    check('参数提交与编辑历史', 'Enter 提交一次；Ctrl+Z 撤销，Ctrl+Shift+Z 重做；提示成果待更新');
+    await click('.cross-section__tabs [role="tab"]');
+    await key('ArrowRight', 'ArrowRight', 39);
+    assert.equal(await evaluate('document.activeElement.textContent'), '中央');
+    await key('End', 'End', 35);
+    assert.equal(await evaluate('document.activeElement.textContent'), '右侧');
+    check('断面标签键盘导航', '左右箭头与 End 切换并移动焦点');
+    await click(topGenerate);
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().output?.input_version===window.__ROAD_WORKBENCH__.getProject().input_version');
+    await click('[aria-label="选择成果导出格式"]');
+    await waitFor('Boolean(document.querySelector(".export-format-list"))');
+    assert(await evaluate('document.querySelector(".workbench-dialog").innerText.includes("WGS84")'));
+    await screenshot('export-formats.png');
+    await key('Escape', 'Escape', 27);
+    await waitFor('!document.querySelector(".workbench-dialog")');
+    assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'), '选择成果导出格式');
+    check('导出弹框', '两种真实格式与坐标系说明；Esc 关闭并把焦点返回入口');
+
+    // 仅给原生文件选择器提供隔离目录路径；保存、读取与导出仍走真实后端。
+    const exportPath = path.join(outputDirectory, 'ui-export.geojson');
+    await evaluate(`window.__ROAD_WORKBENCH__.dialogs.save.push(${JSON.stringify(exportPath)})`);
+    await click('[aria-label="选择成果导出格式"]');
+    await click('.export-format-list > button:nth-child(2)');
+    await waitFor('document.body.innerText.includes("WGS84 GeoJSON 已导出")');
+    const exported = JSON.parse(await fs.readFile(exportPath, 'utf8'));
+    assert(exported.features.length > 0);
+    assert(exported.features.some(feature => Math.abs(feature.geometry.coordinates.flat(4).filter(value => typeof value === 'number')[0]) <= 180));
+    check('真实 GeoJSON 导出', '从新格式弹框点击导出，真实后端写入 WGS84 文件；只替代原生路径选择');
+
+    await click('[aria-label="编辑路面成果"]');
+    const surfacePoint = await evaluate(`(() => {
+      const map=window.__ROAD_WORKBENCH__.getMap();
+      const layers=map.getStyle().layers.filter(layer=>layer.id.startsWith('output-')&&layer.type==='fill').map(layer=>layer.id);
+      const b=map.getCanvas().getBoundingClientRect();
+      for(let y=b.height*.3;y<b.height*.7;y+=4)for(let x=b.width*.35;x<b.width*.65;x+=4){
+        if(map.queryRenderedFeatures([x,y],{layers}).some(feature=>feature.properties.component==='lane'))return {x:b.left+x,y:b.top+y};
+      }
+      throw new Error('当前视口未找到可选择的车道');
+    })()`);
+    await command('Input.dispatchMouseEvent', {type:'mousePressed',...surfacePoint,button:'left',clickCount:1});
+    await command('Input.dispatchMouseEvent', {type:'mouseReleased',...surfacePoint,button:'left',clickCount:1});
+    await waitFor('Boolean(document.querySelector(".generated-surface-editor"))');
+    await fill('.generated-surface-editor input[aria-label="中央隔离带宽度（米）"]', '1.8');
+    await click('.generated-surface-editor__apply');
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().section.median_width===1.8 && Boolean(window.__ROAD_WORKBENCH__.getProject().surface_original_section)');
+    await click(topGenerate);
+    await waitFor('document.querySelector(".workbench-dialog")?.innerText.includes("保留人工修改并生成")');
+    await screenshot('regeneration-preserves-edits.png');
+    await click('.workbench-dialog .dialog-actions .button.primary');
+    await waitFor('!document.querySelector(".workbench-dialog") && window.__ROAD_WORKBENCH__.getProject().last_generated_input_version===window.__ROAD_WORKBENCH__.getProject().input_version');
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.median_width'), 1.8);
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().surface_original_section.median_width'), 1.5);
+    await click('[aria-label="关闭成果编辑面板"]');
+    check('人工成果编辑与重生成', '真实地图选择车道、应用断面修改；确认后保留修改值与恢复规则');
+
+    const savedPath = path.join(outputDirectory, 'ui-project.json');
+    await evaluate(`window.__ROAD_WORKBENCH__.dialogs.save.push(${JSON.stringify(savedPath)})`);
+    await click('[aria-label="保存项目"]');
+    await waitFor('document.querySelector(".save-badge")?.textContent.includes("已保存")');
+    const saved = JSON.parse(await fs.readFile(savedPath, 'utf8'));
+    assert.equal(saved.section.median_width, 1.8);
+    await evaluate(`window.__ROAD_WORKBENCH__.dialogs.open.push(${JSON.stringify(savedPath)})`);
+    await click('[aria-label="打开项目"]');
+    await waitFor('document.querySelector(".project-title")?.innerText.includes("ui-project.json") && !document.querySelector(".workbench-dialog")');
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.median_width'), 1.8);
+    check('保存与恢复', '真实文件保存并从顶部打开，人工修改与成果恢复；只替代原生路径选择');
+
+    await click('[aria-label="专注地图"]');
+    await waitFor('!document.querySelector(".side-panel") || !document.querySelector(".side-panel").getClientRects().length');
+    await click('[aria-label="恢复面板布局"]');
+    await waitFor('document.querySelector(".side-panel").getClientRects().length>0');
+    check('专注地图', '隐藏两侧面板并恢复');
+    await command('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await pause(250);
+    assert(await evaluate('document.querySelector(".top-actions").getBoundingClientRect().right<=innerWidth'));
+    assert(await evaluate('document.querySelector(".maplibregl-canvas").getBoundingClientRect().width>200'));
+    await screenshot('compact-1024.png');
+    check('1024 窗口', '顶部操作未溢出，地图仍可见，图标按钮保留可访问名称');
+  }
+  assert.equal(errors.length, 0, errors.join('\n'));
+  await fs.writeFile(path.join(outputDirectory, 'ui-interaction-report.json'), JSON.stringify({baseline, viewport:'1440×900 / 1024×768', input:'WebView2 CDP 鼠标与键盘', checks, pending:['Windows 中文输入法候选窗人工操作','真实数据库及线上底图','跨设备 DPI'], errors},null,2));
+  console.log(JSON.stringify({passed:checks.length, baseline, outputDirectory}));
+} catch (error) {
+  await screenshot('failure.png').catch(() => undefined);
+  await fs.writeFile(path.join(outputDirectory, 'failure.json'), JSON.stringify({checks, error:String(error), errors},null,2));
+  throw error;
+} finally {
+  socket.close();
+}
