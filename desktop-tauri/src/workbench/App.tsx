@@ -1055,7 +1055,15 @@ function Workbench() {
     [project.route_points],
   );
 
+  const showStartPage =
+    !startDismissed &&
+    !project.route_points.length &&
+    !sourceDatasets.length &&
+    !project.manual_facilities.length &&
+    !project.rasters?.length;
+
   const setToolMode = (next: Tool) => {
+    if (next !== "pan") setStartDismissed(true);
     setTool(next);
     selectedVertex.current = null;
     setVertexSelection(null);
@@ -1102,19 +1110,20 @@ function Workbench() {
     let wasNarrow = window.innerWidth < 1180;
     const adjust = () => {
       const narrow = window.innerWidth < 1180;
-      if (narrow && !wasNarrow && !selectedFacility) setShowInspector(false);
+      if (narrow && !wasNarrow && !selectedFacility && !showStartPage)
+        setShowInspector(false);
       wasNarrow = narrow;
     };
     window.addEventListener("resize", adjust);
     return () => window.removeEventListener("resize", adjust);
-  }, [selectedFacility]);
+  }, [selectedFacility, showStartPage]);
   useEffect(() => {
     projectRef.current = project;
   }, [project]);
   useEffect(() => {
     const frame = requestAnimationFrame(() => mapRef.current?.resize());
     return () => cancelAnimationFrame(frame);
-  }, [showInspector, showLeft, layout]);
+  }, [showInspector, showLeft, layout, showStartPage]);
 
   useEffect(() => {
     let alive = true;
@@ -2120,6 +2129,7 @@ function Workbench() {
           });
           setSelectedFacility(null);
           setPanel("road");
+          setStartDismissed(true);
           setShowLeft(true);
           setStatus(
             "已选中路面成果；可调整所在路段宽度或删除选中组成，原始参考线保持不变。",
@@ -4612,6 +4622,7 @@ function Workbench() {
           run: () => {
             setSourceEntry("connection");
             setPanel("data");
+            setStartDismissed(true);
             setShowLeft(true);
             setSourceOpen(true);
           },
@@ -4620,6 +4631,7 @@ function Workbench() {
           label: "配置字段映射…",
           run: () => {
             setPanel("data");
+            setStartDismissed(true);
             setShowLeft(true);
             setMappingOpen(true);
             if (
@@ -4632,7 +4644,10 @@ function Workbench() {
         {
           label: "选择底图…",
           separator: true,
-          run: () => setShowBasemap(true),
+          run: () => {
+            setStartDismissed(true);
+            setShowBasemap(true);
+          },
         },
         { label: "添加本地影像…", run: () => void importRaster() },
         { label: "添加矢量底图…", run: () => void importVectorBackground() },
@@ -4665,6 +4680,7 @@ function Workbench() {
           label: "编辑横断面",
           run: () => {
             setPanel("road");
+            setStartDismissed(true);
             setShowLeft(true);
           },
         },
@@ -4672,6 +4688,7 @@ function Workbench() {
           label: "放置设施",
           run: () => {
             setPanel("facility");
+            setStartDismissed(true);
             setShowLeft(true);
           },
         },
@@ -4692,6 +4709,7 @@ function Workbench() {
           separator: true,
           run: () => {
             setPanel("facility");
+            setStartDismissed(true);
             setShowLeft(true);
           },
         },
@@ -4707,19 +4725,26 @@ function Workbench() {
         { label: "专注地图", checked: focusMap, run: toggleMapFocus },
         {
           label: "工具面板",
-          checked: showLeft,
+          checked: !showStartPage && showLeft,
           separator: true,
-          run: () => setShowLeft(!showLeft),
+          run: () => {
+            setStartDismissed(true);
+            setShowLeft(showStartPage || !showLeft);
+          },
         },
         {
           label: "属性面板",
-          checked: showInspector,
-          run: () => setShowInspector(!showInspector),
+          checked: !showStartPage && showInspector,
+          run: () => {
+            setStartDismissed(true);
+            setShowInspector(showStartPage || !showInspector);
+          },
         },
         {
           label: "图层面板",
           run: () => {
             setPanel("layers");
+            setStartDismissed(true);
             setShowLeft(true);
           },
         },
@@ -4738,6 +4763,7 @@ function Workbench() {
           separator: true,
           run: () => {
             setLayout({ ...layout, left: 300, right: 300 });
+            setStartDismissed(true);
             setShowLeft(true);
             setShowInspector(true);
           },
@@ -4808,15 +4834,9 @@ function Workbench() {
     window.addEventListener("pointerup", end);
   }
 
-  const showStartPage =
-    !startDismissed &&
-    !project.route_points.length &&
-    !sourceDatasets.length &&
-    !project.manual_facilities.length &&
-    !project.rasters?.length;
   return (
     <div
-      className="app-shell design-refined"
+      className={`app-shell design-refined ${showStartPage ? "at-start" : ""}`}
       data-testid="road-workbench"
       onBlurCapture={() => {
         textTransaction.current = null;
@@ -4927,6 +4947,7 @@ function Workbench() {
               className={`rail-item ${panel === id ? "active" : ""}`}
               onClick={() => {
                 setPanel(id);
+                setStartDismissed(true);
                 setShowLeft(true);
               }}
               aria-label={label}
@@ -5730,6 +5751,14 @@ function Workbench() {
           {showStartPage && (
             <StartPage
               onImportRoute={() => void importRoute()}
+              onImportImage={() => void importRaster()}
+              onConnectData={() => {
+                setStartDismissed(true);
+                setSourceEntry("connection");
+                setPanel("data");
+                setShowLeft(true);
+                setSourceOpen(true);
+              }}
               onOpenProject={() => void loadProject()}
               onDrawRoute={() => {
                 setStartDismissed(true);
@@ -6187,6 +6216,11 @@ function Workbench() {
         </aside>
       </div>
       <footer className="workbench-footer">
+        {showStartPage && (
+          <span className="start-status">
+            本地工作台已就绪 · 打开工程或导入数据开始
+          </span>
+        )}
         <div
           className="generation-card"
           data-state={
@@ -6259,6 +6293,7 @@ function Workbench() {
               }).catch((error) => setStatus(errorMessage(error), "error"));
             else {
               setPanel("data");
+              setStartDismissed(true);
               setShowLeft(true);
               setStatus("请在数据面板打开生成问题列表。");
             }
@@ -6297,7 +6332,13 @@ function Workbench() {
           >
             {displayPreparing && <span>正在准备地图显示 · </span>}
             <span className={`status-dot ${status.tone ?? ""}`} />
-            <span className="status-message">{status.text}</span>
+            <span className="status-message">
+              {showStartPage &&
+              status.tone !== "error" &&
+              status.tone !== "warn"
+                ? ""
+                : status.text}
+            </span>
             <span className="active-tool">
               {tool === "route"
                 ? "绘制路线"

@@ -6,6 +6,8 @@ import {
   MapPinned,
   PencilRuler,
   Route,
+  Database,
+  ImagePlus,
 } from "lucide-react";
 import "./StartPage.css";
 
@@ -17,6 +19,8 @@ export type RecentProject = {
 export type StartPageProps = {
   onImportRoute: () => void;
   onOpenProject: () => void;
+  onImportImage: () => void;
+  onConnectData: () => void;
   onDrawRoute: () => void;
   onOpenExamples: () => void;
   recentProjects?: RecentProject[];
@@ -26,6 +30,8 @@ export type StartPageProps = {
 export function StartPage({
   onImportRoute,
   onOpenProject,
+  onImportImage,
+  onConnectData,
   onDrawRoute,
   onOpenExamples,
   recentProjects = [],
@@ -98,12 +104,28 @@ export function StartPage({
           </button>
         </div>
 
-        {recentProjects.length > 0 && onOpenRecent && (
+        <div className="start-page__additional" aria-label="其他数据入口">
+          <span>其他数据</span>
+          <button type="button" onClick={onConnectData}>
+            <Database size={15} />
+            连接数据库
+          </button>
+          <button type="button" onClick={onImportImage}>
+            <ImagePlus size={15} />
+            导入本地影像
+          </button>
+        </div>
+        {onOpenRecent && (
           <section className="start-page__recent" aria-label="最近工程">
             <div className="start-page__section-title">
               <Clock3 size={15} aria-hidden="true" />
               <h2>最近工程</h2>
             </div>
+            {recentProjects.length === 0 && (
+              <p className="start-page__recent-empty">
+                暂无最近工程。打开或保存工程后会在这里显示。
+              </p>
+            )}
             <div className="start-page__recent-list">
               {recentProjects.map((project) => (
                 <button

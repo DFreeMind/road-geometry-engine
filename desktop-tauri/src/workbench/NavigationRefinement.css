@@ -1,4 +1,32 @@
 /* 导航和启动状态共用一套触发位置，不重复放置底图入口。 */
+.app-shell.design-refined.at-start .workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.app-shell.design-refined.at-start .left-rail,
+.app-shell.design-refined.at-start .side-panel,
+.app-shell.design-refined.at-start .inspector,
+.app-shell.design-refined.at-start .generation-card,
+.app-shell.design-refined.at-start .footer-issues,
+.app-shell.design-refined.at-start .map-coordinate,
+.app-shell.design-refined.at-start .active-tool,
+.app-shell.design-refined.at-start .top-actions > button,
+.app-shell.design-refined.at-start .project-title {
+  display: none;
+}
+.app-shell.design-refined.at-start .top-actions {
+  margin-left: auto;
+}
+.app-shell.design-refined.at-start .map-statusbar {
+  flex: 1;
+}
+.start-status {
+  color: #607590;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.app-shell.design-refined.at-start .status-dot:not(.error):not(.warn) {
+  display: none;
+}
 .app-shell.design-refined .project-title {
   margin-left: auto;
   max-width: min(25vw, 300px);
