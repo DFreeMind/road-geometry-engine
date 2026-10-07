@@ -151,6 +151,16 @@ export function defaultProject(): RoadProject {
   };
 }
 
+/** 新建工程保留可编辑断面模板，不自动放入任何道路或推定成果。 */
+export function emptyProject(): RoadProject {
+  return {
+    ...defaultProject(),
+    route_id: "",
+    route_points: [],
+    route_source: "",
+  };
+}
+
 export function normalizeProject(input: unknown): RoadProject {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("项目文件必须是 JSON 对象");

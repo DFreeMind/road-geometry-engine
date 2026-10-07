@@ -1,0 +1,116 @@
+/* 导航和启动状态共用一套触发位置，不重复放置底图入口。 */
+.app-shell.design-refined .project-title {
+  margin-left: auto;
+  max-width: min(25vw, 300px);
+}
+.app-shell.design-refined .workbench-menubar {
+  flex: 0 0 auto;
+}
+.app-shell.design-refined .source-section-toggle::after {
+  content: none;
+}
+.app-shell.design-refined .source-section-toggle svg {
+  margin-left: auto;
+  color: #718096;
+  transition: transform 120ms ease;
+}
+.app-shell.design-refined
+  .data-source-primary:not([open])
+  .source-section-toggle
+  svg {
+  transform: rotate(-90deg);
+}
+.app-shell.design-refined .source-section-toggle {
+  min-height: 32px;
+}
+.app-shell.design-refined .panel-heading .icon-button {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 6px;
+}
+.app-shell.design-refined .panel-heading .icon-button:hover {
+  background: #edf4ff;
+  border-color: #b7d2f7;
+}
+.app-shell.design-refined .basemap-picker {
+  z-index: 25;
+  border-color: #dce7f5;
+}
+.app-shell.design-refined .map-action[aria-label="底图设置"] span {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell.design-refined .show-start .map-top-controls,
+.app-shell.design-refined .show-start .current-tool-chip,
+.app-shell.design-refined .show-start .map-overlays,
+.app-shell.design-refined .show-start .maplibregl-control-container {
+  display: none;
+}
+.road-example-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+.road-example-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid #dce7f5;
+  border-radius: 10px;
+  background: #fff;
+  color: #1c3657;
+  text-align: left;
+}
+.road-example-card > span {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+}
+.road-example-card strong {
+  font-size: 15px;
+}
+.road-example-card small {
+  font-size: 11px;
+  color: #607590;
+}
+.road-example-card > span > span {
+  font-size: 12px;
+  color: #425a76;
+}
+.road-example-card > svg {
+  flex: none;
+  color: #2563eb;
+}
+.road-example-card:hover {
+  background: #f5f9ff;
+  border-color: #8fb9f1;
+}
+.road-example-card:active {
+  background: #e9f2ff;
+}
+.road-example-card:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+@media (max-width: 1190px) {
+  .app-shell.design-refined .project-title {
+    max-width: 20vw;
+  }
+}
+@media (max-width: 1024px) {
+  .app-shell.design-refined .project-title {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+.app-shell.design-refined .top-actions .button:disabled {
+  opacity: 1;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  box-shadow: none;
+}

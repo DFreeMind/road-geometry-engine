@@ -4,6 +4,7 @@ import {
   acceptGeneration,
   basicCatalog,
   defaultProject,
+  emptyProject,
   facilityFeature,
   markInputEdited,
   normalizeProject,
@@ -12,6 +13,19 @@ import {
 } from "../src/domain";
 
 describe("工程纯 domain 规则", () => {
+  it("新建空工程不携带示例路线，并可保存恢复和独立修改断面", () => {
+    const first = emptyProject(),
+      second = emptyProject();
+    expect(first.route_points).toEqual([]);
+    expect(first.route_id).toBe("");
+    expect(first.route_source).toBe("");
+    expect(first.output).toBeNull();
+    expect(
+      normalizeProject(JSON.parse(JSON.stringify(first))).route_points,
+    ).toEqual([]);
+    first.section.left_lanes[0] = 4;
+    expect(second.section.left_lanes[0]).toBe(3.5);
+  });
   it("将 EPSG:32650 米制路线转换到 WGS84 并可往返", () => {
     const original: [number, number] = [448000, 4420000];
     const geographic = transformPosition(original, "EPSG:32650", "EPSG:4326");

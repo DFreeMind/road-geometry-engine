@@ -1,3 +1,6 @@
+import { StartPage } from "./StartPage";
+import { roadExamples } from "./roadExamples";
+import "./NavigationRefinement.css";
 import "./DesignRefinement.css";
 import "./InspectorRefinement.css";
 import {
@@ -53,6 +56,7 @@ import {
   Box,
   Check,
   ChevronDown,
+  ChevronLeft,
   CircleHelp,
   CloudOff,
   Copy,
@@ -85,6 +89,7 @@ import {
   acceptGeneration,
   basicCatalog,
   defaultProject,
+  emptyProject,
   facilityFeature,
   markInputEdited,
   hasCrsDefinition,
@@ -151,12 +156,7 @@ import {
   type SourceBatchIssue,
 } from "./sourceBatch";
 import { generationChunks, reusableResults } from "./batchScheduling";
-import {
-  PanelLeftClose,
-  PanelLeftOpen,
-  Redo2,
-  ChevronRight,
-} from "lucide-react";
+import { Redo2, ChevronRight } from "lucide-react";
 import { NumericField, SpecificationForm } from "./EditorFields";
 import {
   EditorValidationProvider,
@@ -421,7 +421,7 @@ function Workbench() {
   const selectedVertex = useRef<number | null>(null);
   const [vertexSelection, setVertexSelection] = useState<number | null>(null);
   const onMapClickRef = useRef<(event: MapMouseEvent) => void>(() => undefined);
-  const projectRef = useRef<RoadProject>(defaultProject());
+  const projectRef = useRef<RoadProject>(emptyProject());
   const historyRef = useRef<RoadProject[]>([]);
   const redoRef = useRef<RoadProject[]>([]);
   const textTransaction = useRef<Element | null>(null);
@@ -443,6 +443,7 @@ function Workbench() {
     redo: () => {},
     escape: () => {},
     open: () => {},
+    newProject: () => {},
     generate: () => {},
     fit: () => {},
   });
@@ -456,7 +457,7 @@ function Workbench() {
     tool: "pan",
     points: [],
   });
-  const [project, setProject] = useState<RoadProject>(() => defaultProject());
+  const [project, setProject] = useState<RoadProject>(() => emptyProject());
   const [historyCount, setHistoryCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
   const [editRevision, setEditRevision] = useState(0);
@@ -526,10 +527,38 @@ function Workbench() {
   const [activeTemplate, setActiveTemplate] = useState<CatalogEntry | null>(
     null,
   );
+  const [startDismissed, setStartDismissed] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
+  const [recentProjects, setRecentProjects] = useState<
+    { path: string; name: string }[]
+  >(() => {
+    try {
+      const items = JSON.parse(
+        localStorage.getItem("road-recent-projects") ?? "[]",
+      );
+      return Array.isArray(items)
+        ? items
+            .filter(
+              (item) =>
+                typeof item?.path === "string" &&
+                typeof item?.name === "string",
+            )
+            .slice(0, 6)
+        : [];
+    } catch {
+      return [];
+    }
+  });
   const [fileName, setFileName] = useState("未命名工程");
   const [coordinateMode, setCoordinateMode] = useState<
     "geographic" | "project"
   >("geographic");
+  const basemapTriggerRef = useRef<HTMLButtonElement>(null);
+  const [basemapPosition, setBasemapPosition] = useState({
+    top: 64,
+    right: 12,
+    maxHeight: 400,
+  });
   const [showBasemap, setShowBasemap] = useState(false);
   const [showInspector, setShowInspector] = useState(
     () => readLayout().inspector,
@@ -1153,6 +1182,11 @@ function Workbench() {
         return;
       }
       if (document.querySelector(".workbench-dialog")) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        actionsRef.current.newProject();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();
         actionsRef.current.open();
@@ -2009,6 +2043,7 @@ function Workbench() {
       if (state.tool === "route") {
         update((current) => ({
           ...current,
+          route_id: current.route_id || "manual-route-001",
           route_points: [...current.route_points, coordinates],
           route_source: "manual",
           active_source_ref: undefined,
@@ -2832,6 +2867,7 @@ function Workbench() {
       setSaveState("idle");
       projectPath.current = path;
       setFileName(path.split(/[\\/]/).pop() ?? fileName);
+      rememberProject(path);
       setStatus("项目已保存 · 投影坐标、目录快照与来源字段均保留", "ok");
       return capturedRevision === editRevisionRef.current;
     } catch (error) {
@@ -2858,14 +2894,31 @@ function Workbench() {
     setLeaveDialog(false);
     resolver?.(allowed);
   }
-  async function loadProject() {
+  function rememberProject(path: string) {
+    if (!isTauri()) return;
+    setRecentProjects((current) => {
+      const next = [
+        { path, name: path.split(/[\\/]/).pop() ?? path },
+        ...current.filter((item) => item.path !== path),
+      ].slice(0, 6);
+      try {
+        localStorage.setItem("road-recent-projects", JSON.stringify(next));
+      } catch {
+        /* 本地历史不可写时，工程保存仍然有效。 */
+      }
+      return next;
+    });
+  }
+  async function loadProject(requestedPath?: string) {
     if (!(await confirmLeave())) return;
     if (jobRef.current) await cancelGenerate();
     try {
       let data: unknown;
       let path: string | null = null;
       if (isTauri()) {
-        path = await chooseFile([{ name: "路境项目", extensions: ["json"] }]);
+        path =
+          requestedPath ??
+          (await chooseFile([{ name: "路境项目", extensions: ["json"] }]));
         if (!path) return;
         data = await invokeNative("load_project", { path });
       } else {
@@ -2989,6 +3042,8 @@ function Workbench() {
         String((normalized.source_mapping as any)?.route_id ?? ""),
       );
       setFileName(path?.split(/[\\/]/).pop() ?? normalized.route_id);
+      if (path) rememberProject(path);
+      setStartDismissed(true);
       setSelectedFacility(null);
       fitProject(mapRef.current, normalized);
       setStatus(
@@ -4266,6 +4321,7 @@ function Workbench() {
   const fit = () => fitProject(mapRef.current, projectRef.current);
   actionsRef.current = {
     save: saveProject,
+    newProject: () => void newProject(),
     leave: confirmLeave,
     cancel: cancelGenerate,
     undo,
@@ -4339,46 +4395,100 @@ function Workbench() {
     } else setLayerVisible(compareBackup.current);
     setComparing(!comparing);
   }
-  async function loadExample(real: boolean) {
+  async function newProject() {
     if (!(await confirmLeave())) return;
     if (jobRef.current) await cancelGenerate();
+    const next = emptyProject();
+    next.catalog = { schema_version: 1, entries: structuredClone(catalog) };
+    clearBasemaps();
+    setProject(next);
+    projectRef.current = next;
+    historyRef.current = [];
+    redoRef.current = [];
+    setHistoryCount(0);
+    setRedoCount(0);
+    editRevisionRef.current += 1;
+    savedRevisionRef.current = editRevisionRef.current;
+    setEditRevision(editRevisionRef.current);
+    setSavedRevision(savedRevisionRef.current);
+    projectPath.current = null;
+    setFileName("未命名工程");
+    setSaveState("idle");
+    setRoadState("empty");
+    setSurfaceSelection(null);
+    setSurfaceDelete(null);
+    setSelectedFacility(null);
+    setMappingField("");
+    setPanel("data");
+    setShowLeft(true);
+    setStartDismissed(false);
+    setStatus("新建空工程 · 选择导入、打开或绘制参考线。", "ok");
+  }
+  async function loadExample(id: string) {
+    const example = roadExamples.find((item) => item.id === id);
+    if (!example) return;
+    setExamplesOpen(false);
+    if (!(await confirmLeave())) {
+      setExamplesOpen(true);
+      return;
+    }
+    if (jobRef.current) await cancelGenerate();
     try {
-      if (!real)
-        update((current) => ({
-          ...defaultProject(),
-          manual_facilities: current.manual_facilities,
-          rasters: current.rasters,
-          catalog: current.catalog,
-        }));
-      else {
-        const collection = await fetch("/real-route.geojson").then(
-          (response) => {
-            if (!response.ok) throw new Error("示例文件读取失败");
-            return response.json();
-          },
-        );
-        const feature = collection.features[0];
-        const points = pickLinePart(feature.geometry);
-        const targetCrs = utmCrsForWgs84(points[Math.floor(points.length / 2)]);
-        await ensureCrs(projectRef.current.crs);
-        const converted = reprojectProject(projectRef.current, targetCrs);
-        update(() => ({
-          ...converted,
-          route_id: String(feature.properties?.name ?? "西长安街参考线"),
-          route_source: "OSM 真实参考线 · 宽度待核验",
-          route_points: points.map((point) =>
-            transformPosition(point, "EPSG:4326", targetCrs),
-          ),
-          mapped_attributes: feature.properties ?? {},
-          source_fields: Object.keys(feature.properties ?? {}),
-        }));
-      }
+      const response = await fetch(example.dataUrl);
+      if (!response.ok) throw new Error("示例文件读取失败");
+      const collection = await response.json();
+      const feature = collection.features?.[0];
+      if (!feature?.geometry) throw new Error("示例缺少道路参考线");
+      const points = pickLinePart(feature.geometry);
+      if (
+        points.length < 2 ||
+        points.some(
+          ([x, y]) =>
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            Math.abs(x) > 180 ||
+            Math.abs(y) > 90,
+        )
+      )
+        throw new Error("示例地理坐标无效");
+      const targetCrs = utmCrsForWgs84(points[Math.floor(points.length / 2)]);
+      await ensureCrs(targetCrs);
+      const next: RoadProject = {
+        ...emptyProject(),
+        crs: targetCrs,
+        route_id: String(feature.properties?.name ?? example.title),
+        route_source: "OpenStreetMap 真实道路 · 参考线类型与断面待核验",
+        route_points: points.map((point) =>
+          transformPosition(point, "EPSG:4326", targetCrs),
+        ),
+        mapped_attributes: feature.properties ?? {},
+        source_fields: Object.keys(feature.properties ?? {}),
+        example_source: {
+          id: example.id,
+          title: example.title,
+          source_url: example.sourceUrl,
+          attribution: example.attribution,
+          attributes_status: "模板推定，待人工核验",
+        },
+        catalog: { schema_version: 1, entries: structuredClone(catalog) },
+      };
+      clearBasemaps();
+      update(() => next);
+      projectPath.current = null;
+      setFileName(`${example.title} · 示例`);
+      setSurfaceSelection(null);
+      setSurfaceDelete(null);
+      setSelectedFacility(null);
+      setMappingField("");
+      setExamplesOpen(false);
+      setStartDismissed(true);
+      setPanel("data");
+      setShowLeft(true);
+      setRoadState("empty");
       setToolMode("pan");
-      fit();
+      fitProject(mapRef.current, next);
       setStatus(
-        real
-          ? "已载入真实 OSM 参考线；道路宽度仍为人工模板。"
-          : "已载入合成演示线路",
+        `已载入${example.title} · 真实 OSM 道路；参考线类型与模板断面待核验。`,
         "warn",
       );
     } catch (error) {
@@ -4403,12 +4513,20 @@ function Workbench() {
       label: "文件",
       items: [
         {
+          label: "新建工程",
+          icon: Plus,
+          shortcut: "Ctrl+N",
+          run: () => void newProject(),
+        },
+        {
           label: "打开项目…",
+          icon: FolderOpen,
           shortcut: "Ctrl+O",
           run: () => void loadProject(),
         },
         {
           label: "保存项目",
+          icon: Save,
           shortcut: "Ctrl+S",
           run: () => void saveProject(),
         },
@@ -4518,12 +4636,6 @@ function Workbench() {
         },
         { label: "添加本地影像…", run: () => void importRaster() },
         { label: "添加矢量底图…", run: () => void importVectorBackground() },
-        {
-          label: "载入真实路线示例",
-          separator: true,
-          run: () => void loadExample(true),
-        },
-        { label: "载入合成演示线路", run: () => void loadExample(false) },
         { label: "清除全部底图", separator: true, run: clearBasemaps },
       ],
     },
@@ -4635,11 +4747,44 @@ function Workbench() {
     {
       label: "帮助",
       items: [
+        {
+          label: "道路示例…",
+          icon: MapPinned,
+          run: () => setExamplesOpen(true),
+        },
         { label: "操作与快捷键说明", run: () => setHelpOpen(true) },
         { label: "关于路境工作台", run: () => setHelpOpen(true) },
       ],
     },
   ];
+  useLayoutEffect(() => {
+    if (!showBasemap) return;
+    const area = mapNode.current?.parentElement;
+    const button = basemapTriggerRef.current;
+    if (!area || !button) return;
+    const position = () => {
+      const map = area.getBoundingClientRect(),
+        trigger = button.getBoundingClientRect();
+      const top = trigger.width ? trigger.bottom - map.top + 8 : 12;
+      const right = Math.max(
+        12,
+        Math.min(
+          map.right - trigger.right,
+          Math.max(12, map.width - Math.min(326, map.width - 24) - 12),
+        ),
+      );
+      setBasemapPosition({
+        top,
+        right,
+        maxHeight: Math.min(400, Math.max(100, map.height - top - 12)),
+      });
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(area);
+    observer.observe(button);
+    return () => observer.disconnect();
+  }, [showBasemap, layout, showLeft, showInspector, activeBasemap]);
   function startResize(side: "left" | "right", event: React.PointerEvent) {
     event.preventDefault();
     const start = event.clientX;
@@ -4663,6 +4808,12 @@ function Workbench() {
     window.addEventListener("pointerup", end);
   }
 
+  const showStartPage =
+    !startDismissed &&
+    !project.route_points.length &&
+    !sourceDatasets.length &&
+    !project.manual_facilities.length &&
+    !project.rasters?.length;
   return (
     <div
       className="app-shell design-refined"
@@ -4682,6 +4833,7 @@ function Workbench() {
           </div>
           <span>路境工作台</span>
         </div>
+        <WorkbenchMenu groups={menuGroups} />
         <div className="project-title">
           <span className={`project-dot ${documentDirty ? "dirty" : ""}`} />
           <span title={fileName}>{fileName}</span>
@@ -4695,11 +4847,10 @@ function Workbench() {
 
           <span className="road-state-badge">{roadLabel}</span>
         </div>
-        <WorkbenchMenu groups={menuGroups} />
         <div className="top-actions">
           <button
             className="button quiet"
-            onClick={loadProject}
+            onClick={() => void loadProject()}
             aria-label="打开项目"
             title="打开项目（Ctrl+O）"
           >
@@ -4804,9 +4955,9 @@ function Workbench() {
               onClick={() => setShowLeft((value) => !value)}
             >
               {showLeft ? (
-                <PanelLeftClose size={19} />
+                <ChevronLeft size={19} />
               ) : (
-                <PanelLeftOpen size={19} />
+                <ChevronRight size={19} />
               )}
               <span>{showLeft ? "收起" : "展开"}</span>
             </button>
@@ -4848,7 +4999,7 @@ function Workbench() {
               aria-label="收起当前工作面板"
               onClick={() => setShowLeft(false)}
             >
-              <PanelLeftClose size={17} />
+              <ChevronLeft size={17} />
             </button>
           </div>
           {panel === "data" && (
@@ -4942,7 +5093,21 @@ function Workbench() {
                   open={sourceOpen}
                   onToggle={(event) => setSourceOpen(event.currentTarget.open)}
                 >
-                  <summary className="source-section-toggle">路线数据</summary>
+                  <summary
+                    className="source-section-toggle"
+                    onKeyDown={(event) => {
+                      if (
+                        !isImeComposing(event.nativeEvent) &&
+                        ["Enter", " "].includes(event.key)
+                      ) {
+                        event.preventDefault();
+                        setSourceOpen((value) => !value);
+                      }
+                    }}
+                  >
+                    <span>路线数据</span>
+                    <ChevronDown size={16} />
+                  </summary>
                   <div
                     className="source-entry-tabs"
                     role="group"
@@ -5555,13 +5720,26 @@ function Workbench() {
           )}
         </aside>
 
-        <main className="map-workspace">
+        <main className={`map-workspace ${showStartPage ? "show-start" : ""}`}>
           <div
             ref={mapNode}
             className="map-canvas"
             data-testid="map-canvas"
             aria-label="道路工程地图"
           />
+          {showStartPage && (
+            <StartPage
+              onImportRoute={() => void importRoute()}
+              onOpenProject={() => void loadProject()}
+              onDrawRoute={() => {
+                setStartDismissed(true);
+                setToolMode("route");
+              }}
+              onOpenExamples={() => setExamplesOpen(true)}
+              recentProjects={recentProjects}
+              onOpenRecent={(path) => void loadProject(path)}
+            />
+          )}
           <div className="map-top-controls">
             <div
               className="tool-group"
@@ -5593,6 +5771,7 @@ function Workbench() {
                 onClick={() => setToolMode("vertex")}
                 title="编辑参考线顶点：单击选择，拖动调整，Delete 删除"
                 aria-label="编辑路线顶点"
+                disabled={project.route_points.length < 2}
                 aria-pressed={tool === "vertex"}
               >
                 <Crosshair size={17} />
@@ -5721,13 +5900,18 @@ function Workbench() {
                 <Crosshair size={16} />
               </button>
               <button
+                ref={basemapTriggerRef}
                 className={`map-action ${showBasemap ? "selected" : ""}`}
+                aria-expanded={showBasemap}
+                aria-controls={
+                  showBasemap ? "workbench-basemap-picker" : undefined
+                }
                 onClick={() => setShowBasemap((value) => !value)}
                 aria-label="底图设置"
                 title="底图设置"
               >
                 <MapIcon size={16} />
-                <span>底图</span>
+                <span>{activeBasemap?.label ?? "底图"}</span>
                 <ChevronDown size={12} />
               </button>
               <button
@@ -5756,6 +5940,7 @@ function Workbench() {
           </div>
           {showBasemap && (
             <BasemapPicker
+              position={basemapPosition}
               activeId={activeBasemap?.id ?? "none"}
               onSelect={selectBasemap}
               onClose={() => setShowBasemap(false)}
@@ -5765,19 +5950,6 @@ function Workbench() {
               }}
             />
           )}
-          <button
-            className="basemap-chip"
-            aria-label="选择地图底图"
-            title="选择街道、卫星或本地影像底图"
-            onClick={() => setShowBasemap(true)}
-          >
-            <MapIcon size={18} />
-            <span>
-              <strong>{activeBasemap?.label ?? "选择地图底图"}</strong>
-              <small>选择街道 / 卫星 / 本地影像</small>
-            </span>
-            <ChevronDown size={14} />
-          </button>
           <div className="current-tool-chip" role="status">
             <MousePointer2 size={14} />
             {tool === "route"
@@ -6176,6 +6348,40 @@ function Workbench() {
           </div>
         </Modal>
       )}
+      {examplesOpen && (
+        <Modal title="真实道路示例" onCancel={() => setExamplesOpen(false)}>
+          <p>
+            选择真实道路参考线。断面宽度使用演示模板，参考线类型与道路属性需人工核验。
+          </p>
+          <div className="road-example-list">
+            {roadExamples.map((example) => (
+              <button
+                key={example.id}
+                className="road-example-card"
+                data-example-id={example.id}
+                onClick={() => void loadExample(example.id)}
+              >
+                <MapPinned size={22} />
+                <span>
+                  <small>{example.category}</small>
+                  <strong>{example.title}</strong>
+                  <span>{example.description}</span>
+                  <small>{example.attribution}</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+            ))}
+          </div>
+          <div className="dialog-actions">
+            <button
+              className="button outline"
+              onClick={() => setExamplesOpen(false)}
+            >
+              取消
+            </button>
+          </div>
+        </Modal>
+      )}
       {exportOpen && (
         <Modal title="导出成果" onCancel={() => setExportOpen(false)}>
           <p>选择成果格式，确认文件位置后导出。</p>
@@ -6383,11 +6589,11 @@ function Workbench() {
             保存和导出。
           </p>
           <p>
-            Ctrl+O 打开 · Ctrl+S 保存 · Ctrl+Z 撤销 · Ctrl+Y 重做 · F5 生成 · F
-            适配范围 · P 平移 · Esc 退出绘制。
+            Ctrl+N 新建 · Ctrl+O 打开 · Ctrl+S 保存 · Ctrl+Z 撤销 · Ctrl+Y 重做
+            · F5 生成 · F 适配范围 · P 平移 · Esc 退出绘制。
           </p>
           <p>
-            地图底图入口位于画布左下角，也可从数据菜单打开。在线底图只用于浏览；道路宽度、位置与设施规格需要独立核验。
+            地图底图入口位于画布右上角，选择面板紧邻按钮打开，也可从数据菜单打开。在线底图只用于浏览；道路宽度、位置与设施规格需要独立核验。
           </p>
           <p>
             真实三维、影像 AI 提取和截图配准尚未实现；倾斜视角仅为二维成果示意。
@@ -6444,6 +6650,7 @@ function Workbench() {
             <button
               className="button outline"
               disabled={saveState === "saving"}
+              aria-label="放弃当前工程更改"
               onClick={() => resolveLeave(true)}
             >
               放弃更改
@@ -6609,7 +6816,7 @@ function DataPanel({
             <span />
           </div>
           <div className="route-details">
-            <strong>{project.route_id}</strong>
+            <strong>{project.route_id || "尚未选择路线"}</strong>
             <span>{sourceLabel(project.route_source)}</span>
             <small>
               {project.route_points.length > 1
@@ -7233,13 +7440,17 @@ function ProjectInspector({
           <Baseline size={18} />
         </div>
         <div>
-          <span>所选路线</span>
-          <strong>{project.route_id || "未命名路线"}</strong>
+          <span>
+            {project.route_points.length > 1 ? "所选路线" : "工程设置"}
+          </span>
+          <strong>{project.route_id || "尚未选择路线"}</strong>
         </div>
       </header>
 
       <section className="route-inspector-group">
-        <h3>路线基本信息</h3>
+        <h3>
+          {project.route_points.length > 1 ? "路线基本信息" : "工程默认模板"}
+        </h3>
         <div className="route-inspector-rows">
           <label className="route-inspector-row route-inspector-editable">
             <span>路线编号</span>
@@ -7265,7 +7476,9 @@ function ProjectInspector({
             <strong>{project.crs}</strong>
           </div>
           <div className="route-inspector-row">
-            <span>车道配置</span>
+            <span>
+              {project.route_points.length > 1 ? "车道配置" : "模板车道"}
+            </span>
             <strong>
               左 {project.section.left_lanes.length} · 右{" "}
               {project.section.right_lanes.length} · 共{" "}
@@ -7305,6 +7518,18 @@ function ProjectInspector({
             <strong className="road-status-text">{roadLabel}</strong>
           </div>
         </div>
+        {project.example_source &&
+        typeof project.example_source === "object" ? (
+          <p className="route-inspector-technical-copy">
+            {String((project.example_source as Record<string, unknown>).title)}{" "}
+            ·{" "}
+            {String(
+              (project.example_source as Record<string, unknown>).attribution,
+            )}
+            <br />
+            断面参数：模板推定，待人工核验。
+          </p>
+        ) : null}
         <div className="route-inspector-note">
           <CircleHelp size={15} />
           <span>
@@ -8078,7 +8303,7 @@ function sourceLabel(value: string) {
     ? "示例路线"
     : value === "manual"
       ? "人工绘制"
-      : value || "未指定";
+      : value || "尚未导入";
 }
 
 function ensurePavementTextures(map: MapLibreMap) {

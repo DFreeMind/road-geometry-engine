@@ -103,6 +103,9 @@ try {
   await waitFor('Boolean(window.__TAURI_INTERNALS__ && window.__ROAD_WORKBENCH__ && document.querySelector(".maplibregl-canvas"))');
   await new Promise(resolve => setTimeout(resolve, 800));
   await waitFor('window.__ROAD_WORKBENCH__.getMap()?.isStyleLoaded()');
+  const fixtureRequest=JSON.parse(await fs.readFile(path.join(workspace,'fixtures/example-request.json'),'utf8'));
+  await evaluate(`(()=>{const p=window.__ROAD_WORKBENCH__.getProject();window.__ROAD_WORKBENCH__.loadProject({...p,route_id:${JSON.stringify(fixtureRequest.route_id)},route_points:${JSON.stringify(fixtureRequest.points)},route_source:'synthetic_fixture',section:${JSON.stringify(fixtureRequest.section)}});})()`);
+  await new Promise(resolve=>setTimeout(resolve,400));
   assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getMap().getLayer("road-route-line"))'), '参考线图层缺失');
   if(process.env.ROAD_QA_PINCH_PROBE_ONLY){
     const point=await evaluate('(()=>{const b=window.__ROAD_WORKBENCH__.getMap().getCanvas().getBoundingClientRect();return {x:b.left+b.width*.6,y:b.top+b.height*.5};})()');
@@ -252,7 +255,7 @@ try {
   await click('[aria-label="选择与平移"]');
   assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getMap().doubleClickZoom.isEnabled()'),true);
   check('绘制双击不缩放且不重复添加顶点',true);
-  await click('[aria-label="选择地图底图"]');
+  await click('[aria-label="底图设置"]');
   const popupZoom=await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()');
   const popupPoint=await evaluate('(()=>{const b=document.querySelector(".basemap-picker").getBoundingClientRect();return {x:b.x+b.width/2,y:b.y+b.height/2};})()');
   await command('Input.dispatchMouseEvent',{type:'mouseWheel',...popupPoint,deltaX:0,deltaY:120});
@@ -432,7 +435,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 500));
   assert(await evaluate('document.documentElement.scrollWidth <= innerWidth'), '小窗口出现横向溢出');
   assert(await evaluate('document.querySelector(".map-statusbar").getBoundingClientRect().bottom <= innerHeight + 1'), '状态栏被裁剪');
-  assert(await evaluate(`(()=>{const name=document.querySelector('.project-title > span:nth-child(2)');const old=name.textContent;name.textContent='复杂交叉口道路改造工程-横断面与沿线设施设计项目.json';const menu=document.querySelector('.workbench-menubar').getBoundingClientRect();const project=document.querySelector('.project-title').getBoundingClientRect();const actions=document.querySelector('.top-actions').getBoundingClientRect();const save=document.querySelector('.top-actions [aria-label="保存项目"]').getBoundingClientRect();const valid=project.right<=menu.left&&menu.right<=actions.left&&save.right<=innerWidth;name.textContent=old;return valid;})()`), '长项目名挤压菜单或保存按钮');
+  assert(await evaluate(`(()=>{const name=document.querySelector('.project-title > span:nth-child(2)');const old=name.textContent;name.textContent='复杂交叉口道路改造工程-横断面与沿线设施设计项目.json';const menu=document.querySelector('.workbench-menubar').getBoundingClientRect();const project=document.querySelector('.project-title').getBoundingClientRect();const actions=document.querySelector('.top-actions').getBoundingClientRect();const save=document.querySelector('.top-actions [aria-label="保存项目"]').getBoundingClientRect();const valid=menu.right<=project.left&&project.right<=actions.left&&save.right<=innerWidth;name.textContent=old;return valid;})()`), '长项目名挤压菜单或保存按钮');
   await click('.command-menu > button');
   assert(await evaluate(`(()=>{const popup=document.querySelector('.command-popup');const first=popup.querySelector('button:not(:disabled)');const r=first.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return first.contains(hit)&&popup.getBoundingClientRect().right<=innerWidth;})()`), '下拉菜单被工具栏遮挡或超出窗口');
   await screenshot('13-compact-header-menu.png');
@@ -465,9 +468,9 @@ try {
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
   await waitFor('!document.querySelector(".map-context")');
   assert(await evaluate('Boolean(document.querySelector(".drawing-hint"))'), '关闭右键菜单意外退出绘制');check('右键菜单边缘避让与独立Escape关闭',true);
-  await click('[aria-label="选择地图底图"]');
+  await click('[aria-label="底图设置"]');
   await waitFor('Boolean(document.querySelector(".basemap-picker"))');
-  assert(await evaluate(`(()=>{const picker=document.querySelector('.basemap-picker').getBoundingClientRect();const anchor=document.querySelector('.basemap-chip').getBoundingClientRect();const map=document.querySelector('.map-workspace').getBoundingClientRect();return Math.abs(picker.left-anchor.left)<2&&picker.bottom<=anchor.top&&picker.right<=map.right;})()`), '底图弹出层未与按钮关联或超出窄画布');
+  assert(await evaluate(`(()=>{const picker=document.querySelector('.basemap-picker').getBoundingClientRect();const anchor=document.querySelector('[aria-label="底图设置"]').getBoundingClientRect();const map=document.querySelector('.map-workspace').getBoundingClientRect();return picker.top>=anchor.bottom&&picker.top-anchor.bottom<=12&&picker.left>=map.left&&picker.right<=map.right&&!document.querySelector('.basemap-chip');})()`), '底图弹出层未与顶部按钮关联或超出窄画布');
   await screenshot('17-anchored-basemap.png');
   const pickerStatus=await evaluate('document.querySelector(".status-message").textContent');
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
@@ -774,7 +777,7 @@ try {
   await click('[aria-label="切换坐标显示"]');
   assert(await evaluate('document.querySelector(".coordinate-system").innerText.includes("WGS84")'));
   check('数据面板去重、项目详情折叠与坐标显示切换',true);
-  await click('[aria-label="选择地图底图"]');
+  await click('[aria-label="底图设置"]');
   assert.equal(await evaluate('document.querySelectorAll(".basemap-picker__option").length'),8);
   assert(await evaluate('document.querySelector(".basemap-picker").getBoundingClientRect().height <= 400'), '底图目录占位过大');
   assert(await evaluate('!document.querySelector(".basemap-picker input[type=password]")'), '底图令牌应按需展开');
@@ -1139,7 +1142,7 @@ try {
   await evaluate(`window.__ROAD_WORKBENCH__.loadProject(${JSON.stringify(batchBaseline)})`);
   if(process.env.ROAD_QA_ONLINE === '1') {
     await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
-    await click('[aria-label="选择地图底图"]');
+    await click('[aria-label="底图设置"]');
     await evaluate('(()=>{const map=window.__ROAD_WORKBENCH__.getMap();window.__qaOnlineSourceReady=false;window.__qaOnlineIdle=false;const loaded=e=>{if(e.sourceId==="user-xyz"&&e.isSourceLoaded){window.__qaOnlineSourceReady=true;map.off("sourcedata",loaded);}};map.on("sourcedata",loaded);map.once("idle",()=>window.__qaOnlineIdle=true);const b=[...document.querySelectorAll(".basemap-picker__option")].find(e=>e.querySelector("strong").innerText==="高德卫星");b.click();})()');
     await waitFor('window.__qaOnlineSourceReady && window.__qaOnlineIdle && window.__ROAD_WORKBENCH__.getMap().areTilesLoaded()',60);
     assert(await evaluate('Boolean(window.__ROAD_WORKBENCH__.getMap().getSource("user-xyz"))'));
@@ -1153,7 +1156,7 @@ try {
   await waitFor('getComputedStyle(document.querySelector(".inspector")).display === "none"');
   await new Promise(resolve=>setTimeout(resolve,300));
   await screenshot('20-data-workspace.png');
-  await click('[aria-label="选择地图底图"]');
+  await click('[aria-label="底图设置"]');
   await screenshot('21-compact-basemap.png');
   await click('[aria-label="关闭底图选择器"]');
   assert.equal(browserErrors.length, 0, browserErrors.join('\n'));

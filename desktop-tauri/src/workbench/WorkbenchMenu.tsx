@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import "./WorkbenchMenu.css";
 import { isImeComposing } from "./imeKeyboard";
 export type WorkbenchCommand = {
   label: string;
   run: () => void;
   shortcut?: string;
+  icon?: LucideIcon;
   disabled?: boolean;
   checked?: boolean;
   separator?: boolean;
@@ -16,6 +18,7 @@ export function WorkbenchMenu({
 }) {
   const [open, setOpen] = useState<number | null>(null);
   const root = useRef<HTMLElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setOpen(null);
@@ -35,6 +38,37 @@ export function WorkbenchMenu({
     return () => {
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", key, true);
+    };
+  }, [open]);
+  useLayoutEffect(() => {
+    if (open === null) return;
+    const placePopup = () => {
+      const anchor = root.current?.querySelector<HTMLButtonElement>(
+        `[data-menu-index="${open}"]`,
+      );
+      const panel = popup.current;
+      if (!anchor || !panel) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const margin = 8;
+      const left = Math.min(
+        Math.max(margin, anchorRect.left),
+        Math.max(margin, window.innerWidth - panelRect.width - margin),
+      );
+      const below = anchorRect.bottom + 4;
+      const top = Math.min(
+        below,
+        Math.max(margin, window.innerHeight - panelRect.height - margin),
+      );
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+    placePopup();
+    window.addEventListener("resize", placePopup);
+    document.addEventListener("scroll", placePopup, true);
+    return () => {
+      window.removeEventListener("resize", placePopup);
+      document.removeEventListener("scroll", placePopup, true);
     };
   }, [open]);
   const focusItem = (index: number) =>
@@ -57,6 +91,7 @@ export function WorkbenchMenu({
           <button
             role="menuitem"
             data-menu-index={index}
+            aria-label={`${group.label}菜单`}
             aria-haspopup="menu"
             aria-expanded={open === index}
             onClick={() => setOpen(open === index ? null : index)}
@@ -87,6 +122,7 @@ export function WorkbenchMenu({
           </button>
           {open === index && (
             <div
+              ref={popup}
               className="command-popup"
               role="menu"
               aria-label={`${group.label}命令`}
@@ -140,6 +176,7 @@ export function WorkbenchMenu({
                         ? "menuitem"
                         : "menuitemcheckbox"
                     }
+                    data-command-label={item.label}
                     aria-checked={item.checked}
                     disabled={item.disabled}
                     onClick={() => {
@@ -152,8 +189,16 @@ export function WorkbenchMenu({
                       item.run();
                     }}
                   >
-                    <span className="command-check">
-                      {item.checked ? "✓" : ""}
+                    <span className="command-leading" aria-hidden="true">
+                      {item.checked !== undefined ? (
+                        item.checked ? (
+                          "✓"
+                        ) : (
+                          ""
+                        )
+                      ) : item.icon ? (
+                        <item.icon size={16} strokeWidth={1.8} />
+                      ) : null}
                     </span>
                     <span>{item.label}</span>
                     <kbd>{item.shortcut}</kbd>

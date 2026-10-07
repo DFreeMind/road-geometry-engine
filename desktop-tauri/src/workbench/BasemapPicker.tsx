@@ -18,6 +18,7 @@ type BasemapPickerProps = {
   onImportLocal: () => void;
   onClose: () => void;
   activeId?: string;
+  position?: { top: number; right: number; maxHeight: number };
 };
 
 export function BasemapPicker({
@@ -25,6 +26,7 @@ export function BasemapPicker({
   onImportLocal,
   onClose,
   activeId,
+  position,
 }: BasemapPickerProps) {
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<"catalog" | "custom">("catalog");
@@ -118,7 +120,15 @@ export function BasemapPicker({
   };
 
   return (
-    <section ref={root} className="basemap-picker" aria-label="选择底图">
+    <section
+      ref={root}
+      id="workbench-basemap-picker"
+      className="basemap-picker"
+      aria-label="选择底图"
+      style={
+        position ? { ...position, left: "auto", bottom: "auto" } : undefined
+      }
+    >
       <header className="basemap-picker__header">
         <strong>底图</strong>
         <div

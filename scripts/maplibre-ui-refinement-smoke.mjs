@@ -101,6 +101,61 @@ try {
     await click('.command-popup button:last-of-type');
     await click('.left-rail [aria-label="数据"]');
     await pause(200);
+    assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length'),0);
+    assert(await evaluate('Boolean(document.querySelector("[data-testid=workbench-start-page]"))'));
+    assert(await evaluate('document.querySelector(' + JSON.stringify(topGenerate) + ').disabled'));
+    assert(await evaluate(`(() => {const m=document.querySelector('.workbench-menubar').getBoundingClientRect(),p=document.querySelector('.project-title').getBoundingClientRect();return m.right<=p.left;})()`));
+    await screenshot('startup-1440.png');
+    check('空工程启动页', '默认没有示例路线，生成禁用；菜单在项目及状态之前');
+    await click('.source-section-toggle');
+    assert(await evaluate('!document.querySelector(".data-source-primary").open'));
+    await key('Enter','Enter',13);
+    assert(await evaluate('document.querySelector(".data-source-primary").open'));
+    check('左侧折叠', '标准箭头折叠和键盘展开路线数据区');
+
+    await click('[aria-label="绘制参考线"]');
+    await waitFor('!document.querySelector("[data-testid=workbench-start-page]")');
+    assert(await evaluate('document.querySelector("[aria-label=绘制路线]").getAttribute("aria-pressed")==="true"'));
+    const drawBounds=await evaluate('(()=>{const b=document.querySelector(".maplibregl-canvas").getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height};})()');
+    for (const fraction of [.4,.6]) {
+      const position={x:drawBounds.x+drawBounds.width*fraction,y:drawBounds.y+drawBounds.height*.5};
+      await command('Input.dispatchMouseEvent',{type:'mousePressed',...position,button:'left',clickCount:1});
+      await command('Input.dispatchMouseEvent',{type:'mouseReleased',...position,button:'left',clickCount:1});
+      await pause(150);
+    }
+    await key('Escape','Escape',27);
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().route_points.length===2');
+    await waitFor('!document.querySelector(' + JSON.stringify(topGenerate) + ').disabled');
+    await click(topGenerate);
+    await waitFor('Boolean(window.__ROAD_WORKBENCH__.getProject().output)');
+    await key('n','KeyN',78,2);
+    await waitFor('document.body.innerText.includes("离开当前项目？")');
+    await click('[aria-label="放弃当前工程更改"]');
+    await waitFor('Boolean(document.querySelector("[data-testid=workbench-start-page]"))');
+    check('开始绘制及新建', '开始页绘制两点并由原生引擎生成，Ctrl+N 经确认恢复空工程');
+    for (const id of ['hana-highway','treasure-island-ramp','west-changan-street']) {
+      await click('[aria-label="帮助菜单"]');
+      await click('[data-command-label="道路示例…"]');
+      await screenshot('examples-menu.png');
+      await click('[data-example-id="'+id+'"]');
+      await pause(100);
+      if(await evaluate('document.body.innerText.includes("离开当前项目？")')) await click('[aria-label="放弃当前工程更改"]');
+      await waitFor('window.__ROAD_WORKBENCH__.getProject().example_source?.id===' + JSON.stringify(id));
+      await waitFor('!document.querySelector(".workbench-dialog")');
+      await pause(400);
+      assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length>=2'));
+      assert(await evaluate('window.__ROAD_WORKBENCH__.getProject().example_source.attributes_status.includes("待人工核验")'));
+      await screenshot('example-'+id+'.png');
+    }
+    check('菜单加载真实案例', '城市主干道、弯曲山路、高速匝道分别加载实际 OSM 几何，标明模板属性待核验');
+    await click('[aria-label="底图设置"]');
+    await waitFor('Boolean(document.querySelector(".basemap-picker"))');
+    assert(await evaluate(`(() => {const p=document.querySelector('.basemap-picker').getBoundingClientRect(),t=document.querySelector('[aria-label="底图设置"]').getBoundingClientRect();return p.top>=t.bottom&&p.top-t.bottom<12&&p.right<=innerWidth;})()`));
+    assert.equal(await evaluate('Boolean(document.querySelector(".basemap-chip"))'),false);
+    await screenshot('basemap-top-anchor.png');
+    await key('Escape','Escape',27);
+    await waitFor('!document.querySelector(".basemap-picker")');
+    check('底图入口与选择位置', '唯一地图入口在右上角，选择面板紧邻该按钮，Esc 关闭恢复焦点');
     assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--blue").trim()'), '#2563eb');
     check('蓝白主题', '主题主色及实际工作台控件');
     await click(topGenerate);
@@ -203,6 +258,14 @@ try {
     await waitFor('document.querySelector(".project-title")?.innerText.includes("ui-project.json") && !document.querySelector(".workbench-dialog")');
     assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().section.median_width'), 1.8);
     check('保存与恢复', '真实文件保存并从顶部打开，人工修改与成果恢复；只替代原生路径选择');
+    await key('n','KeyN',78,2);
+    await waitFor('Boolean(document.querySelector(".start-page__recent-item"))');
+    await screenshot('startup-recent.png');
+    await click('.start-page__recent-item');
+    await waitFor('window.__ROAD_WORKBENCH__.getProject().section.median_width===1.8');
+    await waitFor('!document.querySelector("[data-testid=workbench-start-page]")');
+    check('最近工程', '空工程开始页从真实保存历史打开工程并恢复人工编辑');
+
 
     await click('[aria-label="专注地图"]');
     await waitFor('!document.querySelector(".side-panel") || !document.querySelector(".side-panel").getClientRects().length');
