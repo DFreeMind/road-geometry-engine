@@ -1,3 +1,5 @@
+import "./DesignRefinement.css";
+import "./InspectorRefinement.css";
 import {
   saveBindingMapping,
   readConnections,
@@ -15,7 +17,10 @@ import { projectHistorySnapshot } from "./projectHistory";
 import { routeVertexDisplay } from "./routeVertexDisplay";
 import { outputDisplayChunks } from "./displayChunks";
 import { laneMarkingLayers } from "./laneMarkings";
-import { useGenerationIssuesBridge } from "./GenerationIssuesBridge";
+import {
+  createIssueSnapshot,
+  useGenerationIssuesBridge,
+} from "./GenerationIssuesBridge";
 import {
   geometryDiagnostics,
   responseGeometryCollections,
@@ -527,7 +532,7 @@ function Workbench() {
   >("geographic");
   const [showBasemap, setShowBasemap] = useState(false);
   const [showInspector, setShowInspector] = useState(
-    () => window.innerWidth >= 1180 && readLayout().inspector,
+    () => readLayout().inspector,
   );
   const [helpOpen, setHelpOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(true);
@@ -4660,7 +4665,7 @@ function Workbench() {
 
   return (
     <div
-      className="app-shell"
+      className="app-shell design-refined"
       data-testid="road-workbench"
       onBlurCapture={() => {
         textTransaction.current = null;
@@ -4675,8 +4680,8 @@ function Workbench() {
           <div className="brand-mark">
             <MapPinned size={19} />
           </div>
+          <span>路境工作台</span>
         </div>
-        <WorkbenchMenu groups={menuGroups} />
         <div className="project-title">
           <span className={`project-dot ${documentDirty ? "dirty" : ""}`} />
           <span title={fileName}>{fileName}</span>
@@ -4690,6 +4695,7 @@ function Workbench() {
 
           <span className="road-state-badge">{roadLabel}</span>
         </div>
+        <WorkbenchMenu groups={menuGroups} />
         <div className="top-actions">
           <button
             className="button quiet"
@@ -4834,8 +4840,7 @@ function Workbench() {
           />
           <div className="panel-heading">
             <div>
-              <div className="eyebrow">项目工作区</div>
-              <h1>{panelLabel(panel)}</h1>
+              <h1>{panel === "data" ? "数据与路线" : panelLabel(panel)}</h1>
             </div>
             <button
               className="icon-button"
@@ -4850,6 +4855,44 @@ function Workbench() {
             <DataPanel
               project={project}
               status={status}
+              layerControls={
+                <section className="section-block compact-layer-list">
+                  <div className="section-head">
+                    <h3>图层列表</h3>
+                    <span className="count-tag">可见性</span>
+                  </div>
+                  {(
+                    [
+                      ["route", "参考线", "blue"],
+                      ["generated", "道路成果", "purple"],
+                      ["facilities", "手动设施", "red"],
+                      ["raster", "栅格影像", "green"],
+                    ] as const
+                  ).map(([id, name, color]) => (
+                    <LayerRow
+                      key={id}
+                      color={color}
+                      name={name}
+                      detail={
+                        id === "generated"
+                          ? `${layers.length} 个组成图层`
+                          : id === "raster"
+                            ? `${project.rasters?.length ?? 0} 个影像`
+                            : id === "facilities"
+                              ? `${project.manual_facilities.length} 项`
+                              : `${project.route_points.length} 个控制点`
+                      }
+                      visible={layerVisible[id]}
+                      onToggle={() =>
+                        setLayerVisible((current) => ({
+                          ...current,
+                          [id]: !current[id],
+                        }))
+                      }
+                    />
+                  ))}
+                </section>
+              }
               importRaster={importRaster}
               onFieldMap={(field) => {
                 setMappingField(field);
@@ -4899,7 +4942,7 @@ function Workbench() {
                   open={sourceOpen}
                   onToggle={(event) => setSourceOpen(event.currentTarget.open)}
                 >
-                  <summary>路线数据</summary>
+                  <summary className="source-section-toggle">路线数据</summary>
                   <div
                     className="source-entry-tabs"
                     role="group"
@@ -4912,7 +4955,7 @@ function Workbench() {
                       disabled={sourceReading}
                       onClick={() => setSourceEntry("file")}
                     >
-                      文件
+                      本地文件
                     </button>
                     <button
                       type="button"
@@ -4921,7 +4964,7 @@ function Workbench() {
                       disabled={sourceReading}
                       onClick={() => setSourceEntry("connection")}
                     >
-                      连接
+                      数据连接
                     </button>
                   </div>
                   {sourceEntry === "file" ? (
@@ -4930,13 +4973,13 @@ function Workbench() {
                         本地矢量文件、GeoPackage 可直接查询，无需数据库服务。
                       </p>
                       <button
-                        className="button primary full"
+                        className="button outline full"
                         onClick={() => void importRoute()}
                         disabled={sourceReading}
                         aria-label="导入本地路线"
                       >
                         <FolderOpen size={15} />
-                        {sourceReading ? "正在读取图层…" : "打开路线文件"}
+                        {sourceReading ? "正在读取图层…" : "导入矢量"}
                       </button>
                     </div>
                   ) : (
@@ -4966,133 +5009,136 @@ function Workbench() {
                   )}
                 </details>
               }
-              extras={
-                <>
-                  <SourceDatasetManager
-                    generationDisabledReason={
-                      hasInvalidFields
-                        ? "请先修正表单中标记的无效数值"
-                        : undefined
-                    }
-                    datasets={sourceDatasets}
-                    working={working}
-                    progress={batchProgress}
-                    generatedCounts={generatedCounts}
-                    onAppend={() => {
-                      setSourceOpen(true);
-                      setPanel("data");
-                      setStatus(
-                        "在上方路线数据入口继续选择记录；同一来源将自动追加并去重。",
-                      );
-                    }}
-                    onGenerate={() => void generateAllSources()}
-                    onCancel={() => void cancelGenerate()}
-                    onRemoveDataset={(id) => {
-                      update((current) => ({
+              sourceSummary={
+                <SourceDatasetManager
+                  generationDisabledReason={
+                    hasInvalidFields
+                      ? "请先修正表单中标记的无效数值"
+                      : undefined
+                  }
+                  datasets={sourceDatasets}
+                  working={working}
+                  progress={batchProgress}
+                  generatedCounts={generatedCounts}
+                  onAppend={() => {
+                    setSourceOpen(true);
+                    setPanel("data");
+                    setStatus(
+                      "在上方路线数据入口继续选择记录；同一来源将自动追加并去重。",
+                    );
+                  }}
+                  onGenerate={() => void generateAllSources()}
+                  onCancel={() => void cancelGenerate()}
+                  onRemoveDataset={(id) => {
+                    update((current) => ({
+                      ...current,
+                      vector_basemaps: (
+                        (current.vector_basemaps as any[]) ?? []
+                      ).filter((layer) => layer.id !== id),
+                      ...((current.active_source_ref as any)?.dataset_id === id
+                        ? {
+                            active_source_ref: undefined,
+                            route_points: [],
+                            output: null,
+                          }
+                        : {}),
+                    }));
+                    setStatus(
+                      "已移除工程中的来源数据及其成果；未修改原文件或数据库，可撤销。",
+                      "ok",
+                    );
+                  }}
+                  onRemoveFeatures={(id, keys) => {
+                    update((current) => {
+                      const active = current.active_source_ref as
+                        | { dataset_id: string; feature_key: string }
+                        | undefined;
+                      const next = {
                         ...current,
                         vector_basemaps: (
                           (current.vector_basemaps as any[]) ?? []
-                        ).filter((layer) => layer.id !== id),
-                        ...((current.active_source_ref as any)?.dataset_id ===
-                        id
+                        ).map((layer) =>
+                          layer.id === id
+                            ? removeDatasetFeatures(
+                                normalizeSourceDatasets(
+                                  [layer],
+                                  sourceDefaults(current),
+                                )[0],
+                                keys,
+                              )
+                            : layer,
+                        ),
+                        ...(active?.dataset_id === id &&
+                        keys.includes(active.feature_key)
                           ? {
                               active_source_ref: undefined,
                               route_points: [],
                               output: null,
                             }
                           : {}),
-                      }));
-                      setStatus(
-                        "已移除工程中的来源数据及其成果；未修改原文件或数据库，可撤销。",
-                        "ok",
-                      );
-                    }}
-                    onRemoveFeatures={(id, keys) => {
-                      update((current) => {
-                        const active = current.active_source_ref as
-                          | { dataset_id: string; feature_key: string }
-                          | undefined;
-                        const next = {
-                          ...current,
-                          vector_basemaps: (
-                            (current.vector_basemaps as any[]) ?? []
-                          ).map((layer) =>
-                            layer.id === id
-                              ? removeDatasetFeatures(
-                                  normalizeSourceDatasets(
-                                    [layer],
-                                    sourceDefaults(current),
-                                  )[0],
-                                  keys,
-                                )
-                              : layer,
-                          ),
-                          ...(active?.dataset_id === id &&
-                          keys.includes(active.feature_key)
-                            ? {
-                                active_source_ref: undefined,
-                                route_points: [],
-                                output: null,
-                              }
-                            : {}),
-                        };
-                        return retainUnchangedSourceResults(current, next, id);
-                      });
-                      setStatus(
-                        "已从工程移除所选记录；原始数据不受影响，可撤销。",
-                        "ok",
-                      );
-                    }}
-                    onSetIncluded={(id, keys, included) =>
-                      editSourceDataset(
+                      };
+                      return retainUnchangedSourceResults(current, next, id);
+                    });
+                    setStatus(
+                      "已从工程移除所选记录；原始数据不受影响，可撤销。",
+                      "ok",
+                    );
+                  }}
+                  onSetIncluded={(id, keys, included) =>
+                    editSourceDataset(
+                      id,
+                      (dataset) => setDatasetIncluded(dataset, keys, included),
+                      true,
+                    )
+                  }
+                  onEditFeature={(id, key) => {
+                    const dataset = sourceDatasets.find(
+                      (item) => item.id === id,
+                    );
+                    const index = dataset?.feature_keys.indexOf(key) ?? -1;
+                    if (dataset && index >= 0)
+                      void selectSourceFeature(
+                        dataset.collection.features[index],
+                        dataset.source_label,
+                        dataset.binding ?? undefined,
+                        dataset.fields,
                         id,
-                        (dataset) =>
-                          setDatasetIncluded(dataset, keys, included),
-                        true,
-                      )
-                    }
-                    onEditFeature={(id, key) => {
-                      const dataset = sourceDatasets.find(
-                        (item) => item.id === id,
+                        undefined,
+                        key,
                       );
-                      const index = dataset?.feature_keys.indexOf(key) ?? -1;
-                      if (dataset && index >= 0)
-                        void selectSourceFeature(
-                          dataset.collection.features[index],
-                          dataset.source_label,
-                          dataset.binding ?? undefined,
-                          dataset.fields,
-                          id,
-                          undefined,
-                          key,
+                  }}
+                  onConfigureMapping={setMappingDatasetId}
+                  onLocateDataset={(id) => {
+                    const dataset = sourceDatasets.find(
+                      (item) => item.id === id,
+                    );
+                    if (dataset)
+                      try {
+                        fitBounds(
+                          mapRef.current,
+                          routeSourceCollection(
+                            dataset.collection.features as RouteFeature[],
+                          ).bounds,
                         );
-                    }}
-                    onConfigureMapping={setMappingDatasetId}
-                    onLocateDataset={(id) => {
-                      const dataset = sourceDatasets.find(
-                        (item) => item.id === id,
-                      );
-                      if (dataset)
-                        try {
-                          fitBounds(
-                            mapRef.current,
-                            routeSourceCollection(
-                              dataset.collection.features as RouteFeature[],
-                            ).bounds,
-                          );
-                        } catch (error) {
-                          setStatus(errorMessage(error), "error");
-                        }
-                    }}
-                  />
-                  <GenerationIssuesPanel
-                    rows={generationRows}
-                    working={working}
-                    onRetry={(rows) => void generateAllSources(rows)}
-                    onLocate={locateGenerationIssue}
-                    onEdit={(row) => void editGenerationIssue(row)}
-                    onMapping={(row) => setMappingDatasetId(row.dataset_id)}
-                  />
+                      } catch (error) {
+                        setStatus(errorMessage(error), "error");
+                      }
+                  }}
+                />
+              }
+              extras={
+                <>
+                  <details className="data-tool-details">
+                    <summary>生成问题（{generationRows.length}）</summary>
+                    <GenerationIssuesPanel
+                      rows={generationRows}
+                      working={working}
+                      onRetry={(rows) => void generateAllSources(rows)}
+                      onLocate={locateGenerationIssue}
+                      onEdit={(row) => void editGenerationIssue(row)}
+                      onMapping={(row) => setMappingDatasetId(row.dataset_id)}
+                    />
+                  </details>
                   {typeof project.source_batch_job_error === "string" && (
                     <section
                       className="data-tool-details"
@@ -5530,6 +5576,7 @@ function Workbench() {
                 aria-pressed={tool === "pan"}
               >
                 <MousePointer2 size={17} />
+                <span>选择</span>
               </button>
               <button
                 className={tool === "route" ? "selected" : ""}
@@ -5539,6 +5586,17 @@ function Workbench() {
                 aria-pressed={tool === "route"}
               >
                 <PenLine size={17} />
+                <span>绘制</span>
+              </button>
+              <button
+                className={tool === "vertex" ? "selected" : ""}
+                onClick={() => setToolMode("vertex")}
+                title="编辑参考线顶点：单击选择，拖动调整，Delete 删除"
+                aria-label="编辑路线顶点"
+                aria-pressed={tool === "vertex"}
+              >
+                <Crosshair size={17} />
+                <span>编辑顶点</span>
               </button>
               <button
                 className={tool === "surface" ? "selected" : ""}
@@ -5560,15 +5618,7 @@ function Workbench() {
                 }
               >
                 <Pencil size={17} />
-              </button>
-              <button
-                className={tool === "vertex" ? "selected" : ""}
-                onClick={() => setToolMode("vertex")}
-                title="编辑参考线顶点：单击选择，拖动调整，Delete 删除"
-                aria-label="编辑路线顶点"
-                aria-pressed={tool === "vertex"}
-              >
-                <Crosshair size={17} />
+                <span>编辑面</span>
               </button>
               {tool === "vertex" && (
                 <button
@@ -5627,6 +5677,7 @@ function Workbench() {
                 aria-label="撤销上一步"
               >
                 <Undo2 size={16} />
+                <span>撤销</span>
               </button>
               <button
                 disabled={!redoCount}
@@ -5635,6 +5686,7 @@ function Workbench() {
                 aria-label="重做上一步"
               >
                 <Redo2 size={16} />
+                <span>重做</span>
               </button>
             </div>
             <div className="map-actions">
@@ -5650,6 +5702,7 @@ function Workbench() {
                 onClick={toggleMapFocus}
               >
                 {focusMap ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                <span>{focusMap ? "恢复布局" : "专注地图"}</span>
               </button>
               <button
                 className="map-action"
@@ -5674,6 +5727,7 @@ function Workbench() {
                 title="底图设置"
               >
                 <MapIcon size={16} />
+                <span>底图</span>
                 <ChevronDown size={12} />
               </button>
               <button
@@ -5724,6 +5778,18 @@ function Workbench() {
             </span>
             <ChevronDown size={14} />
           </button>
+          <div className="current-tool-chip" role="status">
+            <MousePointer2 size={14} />
+            {tool === "route"
+              ? "绘制路线 · 点击添加控制点"
+              : tool === "vertex"
+                ? "编辑顶点 · 拖动调整，Delete 删除"
+                : tool === "surface"
+                  ? "编辑面 · 点击选择道路组成"
+                  : tool === "facility"
+                    ? "布设设施 · 点击地图放置"
+                    : "当前工具：选择 / 平移"}
+          </div>
           <div className="map-overlays">
             <div
               className={`route-map-card ${showRouteSummary ? "" : "compact"}`}
@@ -5892,108 +5958,6 @@ function Workbench() {
               ]}
             />
           )}
-          <div className="map-statusbar">
-            <div className="map-coordinate">
-              <MapPinned size={14} />
-              <button
-                className="coordinate-system"
-                aria-label="切换坐标显示"
-                aria-pressed={coordinateMode === "project"}
-                title="切换经纬度与工程米制坐标"
-                onClick={() =>
-                  setCoordinateMode((value) =>
-                    value === "geographic" ? "project" : "geographic",
-                  )
-                }
-              >
-                {coordinateMode === "geographic" ? "WGS84" : "工程 XY"}
-                <ChevronDown size={11} />
-              </button>
-              <MapCoordinateReadout
-                mapRef={mapRef}
-                crs={project.crs}
-                mode={coordinateMode}
-              />
-            </div>
-            <div
-              className="map-status"
-              title={status.text}
-              role="status"
-              aria-live="polite"
-            >
-              {displayPreparing && <span>正在准备地图显示 · </span>}
-              <span className={`status-dot ${status.tone ?? ""}`} />
-              <span className="status-message">{status.text}</span>
-              <span className="active-tool">
-                {tool === "route"
-                  ? "绘制路线"
-                  : tool === "vertex"
-                    ? "编辑参考线"
-                    : tool === "surface"
-                      ? "编辑路面"
-                      : tool === "facility"
-                        ? "布设设施"
-                        : "选择 / 平移"}
-              </span>
-            </div>
-          </div>
-          <div className="generation-card">
-            <div className="generation-icon">
-              {working ? (
-                <LoaderCircle size={18} className="is-spinning" />
-              ) : roadState === "error" ? (
-                <CircleAlert size={18} />
-              ) : layers.length && !stale ? (
-                <CircleCheck size={18} />
-              ) : (
-                <Activity size={18} />
-              )}
-            </div>
-            <div className="generation-copy">
-              <strong>{working ? "几何处理中" : "当前路线几何"}</strong>
-              <span>
-                {!isTauri()
-                  ? "预览模式"
-                  : ready
-                    ? roadLabel
-                    : "先准备参考线与横断面"}
-              </span>
-              {working && batchProgress && (
-                <div className="generation-progress" aria-label="道路生成进度">
-                  <progress
-                    max={Math.max(batchProgress.total, 1)}
-                    value={batchProgress.completed}
-                  />
-                  <span>
-                    {batchProgress.completed} / {batchProgress.total} 个线部件
-                  </span>
-                </div>
-              )}
-            </div>
-            {working ? (
-              <button
-                className="button outline"
-                onClick={cancelGenerate}
-                title="停止生成；迟到结果不会写入工程"
-              >
-                <X size={15} />
-                停止
-              </button>
-            ) : (
-              <button
-                className="button outline"
-                disabled={Boolean(generationDisabledReason)}
-                onClick={() => void generate()}
-                title={
-                  generationDisabledReason ??
-                  "生成当前编辑路线；整体生成请使用数据面板中的“生成全部参与路线”"
-                }
-              >
-                <Activity size={15} />
-                {roadState === "error" ? "重试生成" : "生成道路"}
-              </button>
-            )}
-          </div>
         </main>
 
         <aside className="inspector" aria-label="属性检查器">
@@ -6023,10 +5987,7 @@ function Workbench() {
           />
           <div className="inspector-head">
             <div>
-              <div className="eyebrow">属性面板</div>
-              <h2>
-                {selected ? "所选设施" : ready ? "当前路线属性" : "工程属性"}
-              </h2>
+              <h2>{selected ? "所选设施" : ready ? "所选路线" : "工程属性"}</h2>
             </div>
             <button
               className="icon-button"
@@ -6053,6 +6014,132 @@ function Workbench() {
           )}
         </aside>
       </div>
+      <footer className="workbench-footer">
+        <div
+          className="generation-card"
+          data-state={
+            working
+              ? "working"
+              : roadState === "error"
+                ? "error"
+                : stale
+                  ? "stale"
+                  : layers.length
+                    ? "complete"
+                    : "empty"
+          }
+        >
+          <div className="generation-icon">
+            {working ? (
+              <LoaderCircle size={18} className="is-spinning" />
+            ) : roadState === "error" ? (
+              <CircleAlert size={18} />
+            ) : layers.length && !stale ? (
+              <CircleCheck size={18} />
+            ) : (
+              <Activity size={18} />
+            )}
+          </div>
+          <div className="generation-copy">
+            <strong>
+              {working
+                ? "正在生成道路"
+                : layers.length && !stale
+                  ? "道路生成已完成"
+                  : roadLabel}
+            </strong>
+            <span>
+              {!isTauri()
+                ? "预览模式"
+                : ready
+                  ? roadLabel
+                  : "先准备参考线与横断面"}
+            </span>
+            {working && batchProgress && (
+              <div className="generation-progress" aria-label="道路生成进度">
+                <progress
+                  max={Math.max(batchProgress.total, 1)}
+                  value={batchProgress.completed}
+                />
+                <span>
+                  {batchProgress.completed} / {batchProgress.total} 个线部件
+                </span>
+              </div>
+            )}
+          </div>
+          {working ? (
+            <button
+              className="button outline"
+              onClick={cancelGenerate}
+              title="停止生成；迟到结果不会写入工程"
+            >
+              <X size={15} />
+              停止
+            </button>
+          ) : null}
+        </div>
+        <button
+          className="footer-issues"
+          onClick={() => {
+            if (isTauri())
+              void invoke("open_generation_issues_window", {
+                snapshot: createIssueSnapshot(generationRows, working),
+              }).catch((error) => setStatus(errorMessage(error), "error"));
+            else {
+              setPanel("data");
+              setShowLeft(true);
+              setStatus("请在数据面板打开生成问题列表。");
+            }
+          }}
+        >
+          查看问题（{generationRows.length}）
+        </button>
+        <div className="map-statusbar">
+          <div className="map-coordinate">
+            <MapPinned size={14} />
+            <button
+              className="coordinate-system"
+              aria-label="切换坐标显示"
+              aria-pressed={coordinateMode === "project"}
+              title="切换经纬度与工程米制坐标"
+              onClick={() =>
+                setCoordinateMode((value) =>
+                  value === "geographic" ? "project" : "geographic",
+                )
+              }
+            >
+              {coordinateMode === "geographic" ? "WGS84" : "工程 XY"}
+              <ChevronDown size={11} />
+            </button>
+            <MapCoordinateReadout
+              mapRef={mapRef}
+              crs={project.crs}
+              mode={coordinateMode}
+            />
+          </div>
+          <div
+            className="map-status"
+            title={status.text}
+            role="status"
+            aria-live="polite"
+          >
+            {displayPreparing && <span>正在准备地图显示 · </span>}
+            <span className={`status-dot ${status.tone ?? ""}`} />
+            <span className="status-message">{status.text}</span>
+            <span className="active-tool">
+              {tool === "route"
+                ? "绘制路线"
+                : tool === "vertex"
+                  ? "编辑参考线"
+                  : tool === "surface"
+                    ? "编辑路面"
+                    : tool === "facility"
+                      ? "布设设施"
+                      : "选择 / 平移"}
+            </span>
+          </div>
+        </div>
+      </footer>
       {regenerateRequest && (
         <Modal
           title="保留人工修改并重新生成？"
@@ -6494,6 +6581,8 @@ function DataPanel({
   mappingField,
   extras,
   primarySource,
+  layerControls,
+  sourceSummary,
 }: {
   project: RoadProject;
   status: Status;
@@ -6503,35 +6592,13 @@ function DataPanel({
   mappingField: string;
   extras?: React.ReactNode;
   primarySource?: React.ReactNode;
+  layerControls?: React.ReactNode;
+  sourceSummary?: React.ReactNode;
 }) {
   return (
     <div className="panel-content data-panel">
       {primarySource}
-      {extras}
-      <section className="section-block">
-        <div className="section-head">
-          <h3>影像与人工输入</h3>
-          <span className="count-tag">{project.crs}</span>
-        </div>
-
-        <div className="data-secondary-actions">
-          <button className="button outline" onClick={importRaster}>
-            <Plus size={15} />
-            添加栅格
-          </button>
-          <button
-            className="button outline"
-            onClick={() =>
-              document
-                .querySelector<HTMLButtonElement>('[aria-label="绘制路线"]')
-                ?.click()
-            }
-          >
-            <PenLine size={15} />
-            在地图上绘制
-          </button>
-        </div>
-      </section>
+      {sourceSummary}
       <section className="section-block">
         <div className="section-head">
           <h3>当前路线</h3>
@@ -6552,6 +6619,29 @@ function DataPanel({
           </div>
         </div>
       </section>
+      {layerControls}
+      {extras}
+      <details className="section-block supplementary-inputs">
+        <summary>影像与人工输入</summary>
+
+        <div className="data-secondary-actions">
+          <button className="button outline" onClick={importRaster}>
+            <Plus size={15} />
+            添加栅格
+          </button>
+          <button
+            className="button outline"
+            onClick={() =>
+              document
+                .querySelector<HTMLButtonElement>('[aria-label="绘制路线"]')
+                ?.click()
+            }
+          >
+            <PenLine size={15} />
+            在地图上绘制
+          </button>
+        </div>
+      </details>
       <details className="section-block project-card project-details">
         <summary>
           <FileJson size={15} />
@@ -7121,81 +7211,132 @@ function ProjectInspector({
   status: Status;
   roadLabel: string;
 }) {
+  const routeLength = project.route_points
+    .slice(1)
+    .reduce((total, point, index) => {
+      const previous = project.route_points[index];
+      return total + Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+    }, 0);
+  const sourceBinding = project.source_binding;
+  const sourceName =
+    typeof project.source_label === "string"
+      ? project.source_label
+      : project.route_source;
+  const routeIdField = (
+    project.source_mapping as Record<string, unknown> | undefined
+  )?.route_id;
+
   return (
-    <div className="inspector-content">
-      {project.route_points.length > 1 && (
-        <div className="inspector-context">
+    <div className="inspector-content route-inspector">
+      <header className="route-inspector-title">
+        <div className="route-inspector-title-icon">
           <Baseline size={18} />
+        </div>
+        <div>
+          <span>所选路线</span>
+          <strong>{project.route_id || "未命名路线"}</strong>
+        </div>
+      </header>
+
+      <section className="route-inspector-group">
+        <h3>路线基本信息</h3>
+        <div className="route-inspector-rows">
+          <label className="route-inspector-row route-inspector-editable">
+            <span>路线编号</span>
+            <CommittedTextField
+              label="路线编号"
+              value={project.route_id}
+              onCommit={(route_id) =>
+                update((current) => ({ ...current, route_id }))
+              }
+            />
+          </label>
+          <div className="route-inspector-row">
+            <span>几何长度</span>
+            <strong>
+              {routeLength.toLocaleString("zh-CN", {
+                maximumFractionDigits: 1,
+              })}{" "}
+              m
+            </strong>
+          </div>
+          <div className="route-inspector-row">
+            <span>工程坐标系</span>
+            <strong>{project.crs}</strong>
+          </div>
+          <div className="route-inspector-row">
+            <span>车道配置</span>
+            <strong>
+              左 {project.section.left_lanes.length} · 右{" "}
+              {project.section.right_lanes.length} · 共{" "}
+              {project.section.left_lanes.length +
+                project.section.right_lanes.length}{" "}
+              车道
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      <details className="route-inspector-group route-inspector-details" open>
+        <summary>数据来源与处理</summary>
+        <div className="route-inspector-rows">
+          <div className="route-inspector-row">
+            <span>数据来源</span>
+            <strong>{sourceLabel(sourceName)}</strong>
+          </div>
+          <div className="route-inspector-row">
+            <span>路线控制点</span>
+            <strong>{project.route_points.length} 个</strong>
+          </div>
+          {sourceBinding && (
+            <div className="route-inspector-row">
+              <span>来源图层</span>
+              <strong title={sourceBinding.label}>{sourceBinding.label}</strong>
+            </div>
+          )}
+          {typeof routeIdField === "string" && (
+            <div className="route-inspector-row">
+              <span>路线编号字段</span>
+              <strong>{routeIdField}</strong>
+            </div>
+          )}
+          <div className="route-inspector-row">
+            <span>道路成果</span>
+            <strong className="road-status-text">{roadLabel}</strong>
+          </div>
+        </div>
+        <div className="route-inspector-note">
+          <CircleHelp size={15} />
           <span>
-            当前路线：{project.route_id || "未命名路线"}
-            。属性修改仅作用于当前路线。
+            属性修改仅作用于当前路线。车道配置来自逐记录映射或人工横断面，不由总宽度推断。
           </span>
         </div>
-      )}
-      <div className="property-group">
-        <div className="property-heading">
-          <strong>路线基本信息</strong>
-        </div>
-        <label className="inspector-field">
-          <span>业务路线 ID</span>
-          <CommittedTextField
-            label="业务路线 ID"
-            value={project.route_id}
-            onCommit={(route_id) =>
-              update((current) => ({ ...current, route_id }))
-            }
-          />
-        </label>
-        <div className="inspector-field">
-          <span>路线来源</span>
-          <strong>{sourceLabel(project.route_source)}</strong>
-        </div>
-        <div className="inspector-field">
-          <span>道路成果</span>
-          <strong className="road-status-text">{roadLabel}</strong>
-        </div>
-        <div className="inspector-field">
-          <span>路线控制点</span>
-          <strong>{project.route_points.length} 个</strong>
-        </div>
-        <div className="inspector-field">
-          <span>车道配置（按路线正向）</span>
-          <strong>
-            左 {project.section.left_lanes.length} · 右{" "}
-            {project.section.right_lanes.length} · 共{" "}
-            {project.section.left_lanes.length +
-              project.section.right_lanes.length}{" "}
-            车道
-          </strong>
-          <small>来自逐记录映射或人工横断面，不由总宽度推断。</small>
-        </div>
-      </div>
-      <details className="property-group technical-details">
-        <summary>工程详情与兼容信息</summary>
-        <div className="file-row">
-          <span>工程坐标系</span>
-          <strong>{project.crs}</strong>
-        </div>
-        <div className="file-row">
-          <span>输入版本</span>
-          <strong>v{project.input_version}</strong>
-        </div>
-        <div className="file-row">
-          <span>成果版本</span>
-          <strong>
-            {project.output ? `v${project.output.input_version}` : "暂无"}
-          </strong>
-        </div>
-        <p className="compat-copy">
-          工程计算使用投影米制坐标，地图显示和地理导出使用
-          WGS84。旧字段和自动设施设置随项目保留；尚未迁移的自动布设规则仍需旧版客户端。
-        </p>
-        {project.mapping_null_fallback !== undefined && (
-          <div className="file-row">
-            <span>空值回退</span>
-            <strong>{String(project.mapping_null_fallback ?? "null")}</strong>
+      </details>
+
+      <details className="route-inspector-group route-inspector-details">
+        <summary>技术信息</summary>
+        <div className="route-inspector-rows">
+          <div className="route-inspector-row">
+            <span>输入版本</span>
+            <strong>v{project.input_version}</strong>
           </div>
-        )}
+          <div className="route-inspector-row">
+            <span>成果版本</span>
+            <strong>
+              {project.output ? `v${project.output.input_version}` : "暂无"}
+            </strong>
+          </div>
+          {project.mapping_null_fallback !== undefined && (
+            <div className="route-inspector-row">
+              <span>空值回退</span>
+              <strong>{String(project.mapping_null_fallback)}</strong>
+            </div>
+          )}
+        </div>
+        <p className="route-inspector-technical-copy">
+          工程计算使用投影米制坐标，地图显示和地理导出使用 WGS84。
+          输入与成果版本随工程保存，便于核对成果是否与当前参数一致。
+        </p>
       </details>
     </div>
   );

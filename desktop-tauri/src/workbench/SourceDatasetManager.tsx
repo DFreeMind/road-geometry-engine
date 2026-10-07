@@ -144,45 +144,44 @@ export function SourceDatasetManager({
     <section className="source-dataset-manager" aria-label="来源数据管理">
       <header className="source-dataset-manager__header">
         <div className="source-dataset-manager__heading">
-          <div>
-            <span className="source-dataset-manager__eyebrow">工程数据</span>
-            <h2>参与生成的数据</h2>
-          </div>
+          <h2>来源数据</h2>
           <span className="source-dataset-manager__dataset-count">
             {datasets.length} 个来源
           </span>
         </div>
-        <div className="source-dataset-manager__overview" aria-live="polite">
-          <span>
-            已导入 {importedCount} 条 · {datasets.length} 个来源
-          </span>
-          <span>参与生成 {participatingCount} 条</span>
-          <span>
-            {generatedCounts
-              ? `有效成果 ${Object.values(generatedCounts).reduce((sum, count) => sum + count, 0)} 个线部件`
-              : "尚未生成成果"}
-          </span>
-        </div>
+        {datasets.length > 0 && (
+          <div className="source-dataset-manager__overview" aria-live="polite">
+            <span>已导入 {importedCount} 条</span>
+            <span>参与生成 {participatingCount} 条</span>
+            <span>
+              {generatedCounts
+                ? `有效成果 ${Object.values(generatedCounts).reduce((sum, count) => sum + count, 0)} 个线部件`
+                : "尚未生成成果"}
+            </span>
+          </div>
+        )}
         <div className="source-dataset-manager__primary-actions">
-          <button
-            type="button"
-            className="source-dataset-manager__generate"
-            disabled={
-              working ||
-              participatingCount === 0 ||
-              Boolean(generationDisabledReason)
-            }
-            title={
-              generationDisabledReason ??
-              (participatingCount === 0
-                ? "先加载或勾选参与生成的路线"
-                : "生成所有已加载并参与的路线")
-            }
-            onClick={onGenerate}
-          >
-            <Play size={15} aria-hidden="true" />
-            生成全部参与路线
-          </button>
+          {datasets.length > 0 && (
+            <button
+              type="button"
+              className="source-dataset-manager__generate"
+              disabled={
+                working ||
+                participatingCount === 0 ||
+                Boolean(generationDisabledReason)
+              }
+              title={
+                generationDisabledReason ??
+                (participatingCount === 0
+                  ? "先加载或勾选参与生成的路线"
+                  : "生成所有已加载并参与的路线")
+              }
+              onClick={onGenerate}
+            >
+              <Play size={15} aria-hidden="true" />
+              生成全部参与路线
+            </button>
+          )}
           <button
             type="button"
             className="source-dataset-manager__append"
@@ -220,9 +219,8 @@ export function SourceDatasetManager({
 
       {datasets.length === 0 ? (
         <div className="source-dataset-manager__empty">
-          <FilePlus2 size={21} aria-hidden="true" />
-          <strong>工程中还没有已导入的来源</strong>
-          <span>追加导入会返回来源入口；不会自动查询整个数据库。</span>
+          <FilePlus2 size={16} aria-hidden="true" />
+          <span>等待导入来源数据</span>
         </div>
       ) : (
         <div className="source-dataset-manager__list">

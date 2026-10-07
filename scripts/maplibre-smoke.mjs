@@ -153,7 +153,8 @@ try {
   }
   check('统一来源命令：GeoJSON和投影GeoPackage文件/连接离线筛选、跨批、原始字段FID、bbox及注入拒绝',{rows:3000,sources:neutralSources.length});
   await screenshot('01-workspace.png');
-  const gesturePoint = await evaluate('(()=>{const b=document.querySelector(".maplibregl-canvas").getBoundingClientRect();return {x:b.x+b.width*.6,y:b.y+b.height*.55};})()');
+  // WebView2 的鼠标事件使用整数像素，测量锚点与发出的事件必须采用同一位置。
+  const gesturePoint = await evaluate('(()=>{const b=document.querySelector(".maplibregl-canvas").getBoundingClientRect();return {x:Math.round(b.x+b.width*.6),y:Math.round(b.y+b.height*.55)};})()');
   const viewBefore = await evaluate('({zoom:window.__ROAD_WORKBENCH__.getMap().getZoom(),center:window.__ROAD_WORKBENCH__.getMap().getCenter().toArray()})');
   await command('Input.dispatchMouseEvent', {type:'mouseWheel', ...gesturePoint, deltaX:0, deltaY:-120});
   await new Promise(resolve=>setTimeout(resolve,600));
@@ -179,7 +180,7 @@ try {
   await new Promise(resolve=>setTimeout(resolve,200));
   assert(await evaluate(`window.__ROAD_WORKBENCH__.getMap().getZoom()>${pinchBefore.zoom}`));
   const anchorAfter=await evaluate(`(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),b=m.getCanvas().getBoundingClientRect();return m.unproject([${gesturePoint.x}-b.left,${gesturePoint.y}-b.top]).toArray();})()`);
-  assert(Math.abs(anchorAfter[0]-pinchBefore.anchor[0])<1e-7&&Math.abs(anchorAfter[1]-pinchBefore.anchor[1])<1e-7);
+  assert(Math.abs(anchorAfter[0]-pinchBefore.anchor[0])<1e-7&&Math.abs(anchorAfter[1]-pinchBefore.anchor[1])<1e-7, JSON.stringify({pinchBefore,anchorAfter,gesturePoint}));
   check('触控板捏合缩放保持指针位置',true);
   const pinchInZoom=await evaluate('window.__ROAD_WORKBENCH__.getMap().getZoom()');
   await command('Input.dispatchMouseEvent',{type:'mouseWheel',...gesturePoint,deltaX:0,deltaY:15,modifiers:2});
@@ -213,10 +214,12 @@ try {
   await new Promise(resolve=>setTimeout(resolve,200));
   assert.equal(await evaluate('window.innerWidth'),nativePinchBefore.width);
   check('原生触控板捏合双向缩放，面板手势及快捷键不缩放工作台',true);
+  await click('[aria-label="缩放到路线"]');
+  await waitFor('!window.__ROAD_WORKBENCH__.getMap().isMoving()');
   await click('[aria-label="编辑路线顶点"]');
   await waitFor('window.__ROAD_WORKBENCH__.getMap().querySourceFeatures("road-route-vertices").some(f=>f.geometry.type==="Point")');
   const vertexBefore=await evaluate('window.__ROAD_WORKBENCH__.getProject().route_points.length');
-  const vertexPoint=await evaluate('(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),f=m.querySourceFeatures("road-route-vertices");const p=m.project(f.find(f=>f.geometry.type==="Point").geometry.coordinates);const b=m.getCanvas().getBoundingClientRect();return {x:p.x+b.left,y:p.y+b.top};})()');
+  const vertexPoint=await evaluate('(()=>{const m=window.__ROAD_WORKBENCH__.getMap(),f=m.querySourceFeatures("road-route-vertices");const canvas=m.getCanvas(),b=canvas.getBoundingClientRect();const points=f.filter(f=>f.geometry.type==="Point").map(f=>m.project(f.geometry.coordinates)).map(p=>({x:Math.round(p.x+b.left),y:Math.round(p.y+b.top)}));const p=points.find(p=>document.elementFromPoint(p.x,p.y)===canvas);if(!p)throw new Error("没有未被控件遮挡的可见控制点");return p;})()');
   await command('Input.dispatchMouseEvent',{type:'mousePressed',...vertexPoint,button:'left',clickCount:1});
   await command('Input.dispatchMouseEvent',{type:'mouseReleased',...vertexPoint,button:'left',clickCount:1});
   await waitFor(`!document.querySelector('[aria-label="删除选中控制点"]').disabled`);
@@ -285,9 +288,9 @@ try {
     assert.equal(await evaluate('JSON.stringify(window.__ROAD_WORKBENCH__.getProject().output)'),unchangedOutput);
     assert.equal(await evaluate('window.__ROAD_WORKBENCH__.getProject().input_version'),unchangedVersion);
   }
-  assert(await evaluate('document.querySelector(".panel-heading").getBoundingClientRect().height<=36'));
+  assert(await evaluate('Math.abs(document.querySelector(".panel-heading").getBoundingClientRect().height-50)<0.1'));
   await screenshot('24-live-pavement-display.png');
-  check('材质与成果表达即时切换保留生成结果及紧凑标题栏',true);
+  check('材质与成果表达即时切换保留生成结果及设计版标题栏',true);
 
   const imported = await invoke('import_vector', { path: path.join(workspace, 'fixtures/sample-route.geojson') });
   assert.equal(imported.collection.features.length, 1); assert.equal(imported.source_crs, 'EPSG:4326'); check('原生矢量导入', { source_crs: imported.source_crs });
@@ -429,13 +432,13 @@ try {
   await new Promise(resolve => setTimeout(resolve, 500));
   assert(await evaluate('document.documentElement.scrollWidth <= innerWidth'), '小窗口出现横向溢出');
   assert(await evaluate('document.querySelector(".map-statusbar").getBoundingClientRect().bottom <= innerHeight + 1'), '状态栏被裁剪');
-  assert(await evaluate(`(()=>{const name=document.querySelector('.project-title > span:nth-child(2)');const old=name.textContent;name.textContent='复杂交叉口道路改造工程-横断面与沿线设施设计项目.json';const menu=document.querySelector('.workbench-menubar').getBoundingClientRect();const project=document.querySelector('.project-title').getBoundingClientRect();const actions=document.querySelector('.top-actions').getBoundingClientRect();const save=document.querySelector('.top-actions [aria-label="保存项目"]').getBoundingClientRect();const valid=menu.right<=project.left&&project.right<=actions.left&&save.right<=innerWidth;name.textContent=old;return valid;})()`), '长项目名挤压菜单或保存按钮');
+  assert(await evaluate(`(()=>{const name=document.querySelector('.project-title > span:nth-child(2)');const old=name.textContent;name.textContent='复杂交叉口道路改造工程-横断面与沿线设施设计项目.json';const menu=document.querySelector('.workbench-menubar').getBoundingClientRect();const project=document.querySelector('.project-title').getBoundingClientRect();const actions=document.querySelector('.top-actions').getBoundingClientRect();const save=document.querySelector('.top-actions [aria-label="保存项目"]').getBoundingClientRect();const valid=project.right<=menu.left&&menu.right<=actions.left&&save.right<=innerWidth;name.textContent=old;return valid;})()`), '长项目名挤压菜单或保存按钮');
   await click('.command-menu > button');
   assert(await evaluate(`(()=>{const popup=document.querySelector('.command-popup');const first=popup.querySelector('button:not(:disabled)');const r=first.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return first.contains(hit)&&popup.getBoundingClientRect().right<=innerWidth;})()`), '下拉菜单被工具栏遮挡或超出窗口');
   await screenshot('13-compact-header-menu.png');
   await click('.command-menu > button');
   check('紧凑工作栏长项目名与下拉菜单可访问性', true);
-  assert(await evaluate('(()=>{const bar=document.querySelector(".map-statusbar").getBoundingClientRect();const coord=document.querySelector(".map-coordinate").getBoundingClientRect();const status=document.querySelector(".map-status").getBoundingClientRect();return bar.height<=34&&Math.abs((coord.top+coord.bottom)/2-(status.top+status.bottom)/2)<2;})()'), '坐标与反馈未合并为单行');
+  assert(await evaluate('(()=>{const bar=document.querySelector(".map-statusbar").getBoundingClientRect();const coord=document.querySelector(".map-coordinate").getBoundingClientRect();const status=document.querySelector(".map-status").getBoundingClientRect();return Math.abs(document.querySelector(".workbench-footer").getBoundingClientRect().height-44)<0.1&&bar.height<=44.1&&Math.abs((coord.top+coord.bottom)/2-(status.top+status.bottom)/2)<2;})()'), '坐标与反馈未合并为单行');
   check('单行坐标与操作状态栏',true);
   await screenshot('06-1024x720.png'); check('1024×720 工作区与状态栏布局', true);
   assert(await evaluate('getComputedStyle(document.querySelector(".inspector")).display === "none"'));
@@ -761,7 +764,8 @@ try {
   assert.equal(await evaluate('document.querySelector(".field-mapping") !== null'),false);
   check('没有属性字段时隐藏冗余空映射区，实际字段映射另行验证',true);
   assert(await evaluate('!document.querySelector(".project-details").open'), '项目详情应默认折叠');
-  assert.equal(await evaluate('document.querySelectorAll(".data-panel > .section-block:not(.project-details) button").length'),2);
+  assert.equal(await evaluate('document.querySelectorAll(".supplementary-inputs button").length'),2);
+  assert.equal(await evaluate('document.querySelectorAll(".compact-layer-list .layer-row button").length'),4);
   await click('.project-details > summary');
   assert(await evaluate('document.querySelector(".project-details").innerText.includes("输入版本")'), '项目详情缺少原有元数据');
   await click('.project-details > summary');

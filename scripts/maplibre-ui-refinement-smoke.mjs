@@ -97,10 +97,22 @@ try {
     await screenshot('before-road-1440.png');
     check('基线截图', '1440×900、DPI 1、默认合成路线、独立配置');
   } else {
+    await click('[data-menu-index="4"]');
+    await click('.command-popup button:last-of-type');
+    await click('.left-rail [aria-label="数据"]');
+    await pause(200);
     assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--blue").trim()'), '#2563eb');
     check('蓝白主题', '主题主色及实际工作台控件');
     await click(topGenerate);
     await waitFor('Boolean(window.__ROAD_WORKBENCH__.getProject().output)');
+    await waitFor('!document.querySelector(' + JSON.stringify(topGenerate) + ').disabled');
+    await pause(1000);
+    assert(await evaluate('document.querySelector(".brand").innerText.includes("路境工作台")'));
+    assert(await evaluate('document.querySelector(".inspector").getBoundingClientRect().width > 250'));
+    assert(await evaluate('document.querySelector(".workbench-footer").getBoundingClientRect().width >= 1439'));
+    assert(await evaluate(`document.querySelector('.tool-group [aria-label="编辑路线顶点"]').innerText.includes('编辑顶点')`));
+    assert(await evaluate(`(() => { const c=document.querySelector('.maplibregl-ctrl-top-right .maplibregl-ctrl-group').getBoundingClientRect(),l=document.querySelector('.legend-card').getBoundingClientRect();return c.bottom<=l.top||c.top>=l.bottom||c.right<=l.left||c.left>=l.right; })()`));
+    check('设计结构落实', '可见品牌、带文字工具条、右侧属性面板及全窗口底栏');
     await screenshot('after-data-1440.png');
     check('当前路线生成', '鼠标点击顶部生成，调用真实原生引擎');
     await click('.left-rail [aria-label="道路"]');
