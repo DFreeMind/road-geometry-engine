@@ -19,3 +19,13 @@
 前端156项测试、Prettier、TypeScript/Vite与Windows Tauri调试构建通过。客户端不能解除CDN服务端拒绝；Esri在当前网络的正常加载仍未通过，USGS只在该代表区域验证，不代表全球覆盖或影像日期保证。
 
 实际工作台的30项鼠标键盘回归检查通过，报告：`artifacts/maplibre-qa/esri-message-regression/ui-interaction-report.json`。中文输入法、跨设备DPI和其他网络仍需人工验收；这些检查不等同于完整发布验收。
+
+## 2026-10-08 与 Geo Viewer Plus 对比复核
+
+用户提供了 Geo Viewer Plus 在 DataGrip 中显示 Esri 影像的截图。核对该项目的 `CustomGeoViewerContent.java` 和 `geo-viewer-plus.html`：其预设使用 `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`，通过 Leaflet `L.tileLayer` 加载图片；本工作台原预设使用 `services.arcgisonline.com`，通过 MapLibre 栅格源加载。两个域名不能仅凭服务名称相同就视为当前网络下访问结果相同。
+
+本次在同机用 curl 直连 `server.arcgisonline.com` 的 `tile/0/0/0` 和 `tile/15/14443/2173`，均取得 HTTP 200、`image/jpeg` 与 `Access-Control-Allow-Origin: *`。直连 `services.arcgisonline.com` 的请求在限定时间内超时。系统代理处于启用状态；显式经该系统代理请求两个域名时均取得 HTTP 403、`AkamaiGHost` 与 HTML，而非影像。因此此前的拒绝记录不能扩展为 Esri 在这台机器上所有访问方式均不可用，也没有证据认为必须换地图引擎或添加令牌。
+
+已将工作台 Esri 公开预设改为参考项目使用的 `server.arcgisonline.com`。156 项前端测试、修改文件的 Prettier 检查、TypeScript/Vite 构建及 Windows Tauri 调试构建通过，部署为 `build-20261008-113515-266`。默认网络下实际 Tauri 工作台用鼠标键盘导入定位线段、搜索并选择 Esri 后仍未取得影像；调试协议记录 `MissingAllowOriginHeader`，对应截图及报告在 `artifacts/maplibre-qa/esri-default-network/`。浏览器未暴露 HTTP 状态，因此工作台本身仍不能将这次失败直接标记为 403。代理 HTTP 测试和工作台现象一致，网络路径是后续排查重点；未读取 DataGrip 当前运行实例的网络配置，不能断言其代理行为。
+
+临时 WebView2 代理绕过验证被自动审批拒绝（返回原因仅为 `blocked by policy`），未执行该操作，也未修改系统代理或关闭浏览器跨域检查。此次只完成地址修正及差异定位，默认工作台正常显示 Esri 仍待网络路由调整后的实际验收。

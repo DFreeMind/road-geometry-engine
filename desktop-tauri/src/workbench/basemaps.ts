@@ -41,7 +41,7 @@ export const BASEMAP_PRESETS: BasemapPreset[] = [
   {
     id: "esri-public",
     label: "Esri 全球影像",
-    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: esriAttribution,
     maxZoom: 19,
     displayCrs: "WGS84",
