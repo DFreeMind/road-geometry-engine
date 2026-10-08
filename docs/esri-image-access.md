@@ -29,3 +29,11 @@
 已将工作台 Esri 公开预设改为参考项目使用的 `server.arcgisonline.com`。156 项前端测试、修改文件的 Prettier 检查、TypeScript/Vite 构建及 Windows Tauri 调试构建通过，部署为 `build-20261008-113515-266`。默认网络下实际 Tauri 工作台用鼠标键盘导入定位线段、搜索并选择 Esri 后仍未取得影像；调试协议记录 `MissingAllowOriginHeader`，对应截图及报告在 `artifacts/maplibre-qa/esri-default-network/`。浏览器未暴露 HTTP 状态，因此工作台本身仍不能将这次失败直接标记为 403。代理 HTTP 测试和工作台现象一致，网络路径是后续排查重点；未读取 DataGrip 当前运行实例的网络配置，不能断言其代理行为。
 
 临时 WebView2 代理绕过验证被自动审批拒绝（返回原因仅为 `blocked by policy`），未执行该操作，也未修改系统代理或关闭浏览器跨域检查。此次只完成地址修正及差异定位，默认工作台正常显示 Esri 仍待网络路由调整后的实际验收。
+
+## 2026-10-08 再次复核：系统代理开启不等于地图浏览器使用代理
+
+用户再次提供 DataGrip 中 Esri 正常显示的截图，强调系统代理处于开启状态。本次读取当前运行进程的代理相关启动参数：`datagrip64.exe`（PID 20944）的直接子进程 `cef_server.exe`（PID 61876）带有 `--no-proxy-server`。因此当前 JCEF 浏览器启动配置明确禁用代理，不能把系统代理开关当作两个客户端网络路径相同的证据。参考插件本身创建默认 `JBCefBrowser`，没有自定义代理处理代码；这一差异来自其宿主浏览器配置。
+
+另外，在实际 Tauri WebView2 页面对同一 `server.arcgisonline.com/World_Imagery` 零级瓦片依次测试普通 `Image`、`crossOrigin=anonymous` 图片、`fetch` 及不发送 Referer 的 `fetch`。四种方式均失败；通过 CDP `Network.responseReceivedExtraInfo` 取得四个实际 HTTP 403 响应。普通图片也失败，故仅改为 Leaflet 图片加载不能解决当前工作台的访问拒绝；CORS 缺头是本次拒绝响应伴随的现象，不能将其单独认定为根因。此次补齐了之前工作台只观测到 status 0 时没有的 HTTP 状态证据。
+
+进程证据与请求对比保存在 `artifacts/maplibre-qa/esri-request-comparison/` 的 `process-network-settings.json` 和 `request-comparison.json`。结合此前直连 200、经系统代理 403 的对照，当前证据支持网络配置差异解释。未修改用户系统代理、DataGrip 或工作台的运行时网络设置，未声称正常显示已经修复。
