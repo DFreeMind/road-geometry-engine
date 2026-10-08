@@ -31,3 +31,5 @@
 157 项前端测试、修改文件 Prettier、TypeScript/Vite 和 Windows Tauri 调试构建通过，部署为 `build-20261008-114214-610`。在实际运行的独立 WebView2 工作台中，通过鼠标键盘导入定位线段、搜索并选择来源，腾讯北京与 HOT 巴黎均取得 HTTP 200 瓦片、来源加载完成、可见署名正确，源矢量图层保留；截图人工查看已显示地图。证据在 `artifacts/maplibre-qa/reference-basemaps-final/`，腾讯响应 MIME 为 `application/octet-stream`，经图像解码与显示纠偏后正常渲染。
 
 Esri 山体阴影直连零级瓦片取得 HTTP 200、JPEG、允许跨域响应；默认网络下的实际工作台未取得影像，报告在 `artifacts/maplibre-qa/reference-hillshade-final/`，正常渲染仍待验收，不能把目录接入写成加载通过。网络差异见[Esri 访问复核](esri-image-access.md)。本轮两地点验证不等同于所有区域、DPI、中文输入法及完整发布验收。
+
+后续按用户授权实现 Esri 原生直连，卫星影像与山体阴影在实际工作台显示验证通过，替代上述“渲染待验收”状态；最新证据和限制见[Esri修复记录](esri-image-access.md)。

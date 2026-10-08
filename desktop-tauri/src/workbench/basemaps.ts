@@ -1,4 +1,5 @@
 import { addProtocol } from "maplibre-gl";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export type BasemapConfig = {
   id: string;
@@ -548,7 +549,50 @@ export function registerBasemapProtocols() {
     );
     return { data };
   });
+  addProtocol("esri-direct", async (params, abortController) => {
+    const match = params.url.match(
+      /^esri-direct:\/\/(imagery|hillshade)\/(\d+)\/(\d+)\/(\d+)$/,
+    );
+    if (!match) throw new Error("无效的 Esri 瓦片地址");
+    const signal = abortController.signal;
+    signal.throwIfAborted();
+    const [, layer, z, x, y] = match;
+    try {
+      const data = await invoke<ArrayBuffer>("esri_tile", {
+        layer,
+        z: Number(z),
+        x: Number(x),
+        y: Number(y),
+      });
+      signal.throwIfAborted();
+      return { data };
+    } catch (reason) {
+      signal.throwIfAborted();
+      const error = new Error(String(reason)) as Error & {
+        status?: number;
+        url: string;
+      };
+      const status = String(reason).match(/HTTP (\d{3})/);
+      if (status) error.status = Number(status[1]);
+      error.url = params.url;
+      throw error;
+    }
+  });
   gcjProtocolsRegistered = true;
+}
+
+/** 桌面预设使用限定 Esri 服务的原生直连；浏览器预览继续使用 HTTPS。 */
+export function desktopBasemapConfig(config: BasemapConfig): BasemapConfig {
+  if (!isTauri()) return config;
+  const layer =
+    config.id === "esri-public"
+      ? "imagery"
+      : config.id === "esri-hillshade"
+        ? "hillshade"
+        : null;
+  return layer
+    ? { ...config, url: `esri-direct://${layer}/{z}/{x}/{y}` }
+    : config;
 }
 
 function isLoopback(hostname: string) {

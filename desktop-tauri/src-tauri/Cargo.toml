@@ -17,6 +17,8 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 road-geometry-service = { path = "../../desktop-service" }
+reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls"] }
+tokio = { version = "1", features = ["sync"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

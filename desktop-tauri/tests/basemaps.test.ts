@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AUTHENTICATED_BASEMAP_PRESETS,
   BASEMAP_PRESETS,
@@ -10,9 +10,29 @@ import {
   validateTileServiceUrl,
   wgs84ToGcj02,
   resolveGcjTileUrl,
+  desktopBasemapConfig,
 } from "../src/workbench/basemaps";
 
 describe("底图目录与服务配置", () => {
+  it("仅桌面内置 Esri 采用原生直连，其他来源及浏览器保留 HTTPS", () => {
+    const imagery = createPresetConfig("esri-public");
+    vi.stubGlobal("isTauri", false);
+    try {
+      expect(desktopBasemapConfig(imagery)).toBe(imagery);
+      vi.stubGlobal("isTauri", true);
+      expect(desktopBasemapConfig(imagery).url).toBe(
+        "esri-direct://imagery/{z}/{x}/{y}",
+      );
+      expect(
+        desktopBasemapConfig(createPresetConfig("esri-hillshade")).url,
+      ).toBe("esri-direct://hillshade/{z}/{x}/{y}");
+      const osm = createPresetConfig("osm");
+      expect(desktopBasemapConfig(osm)).toBe(osm);
+      expect(imagery.url).toMatch(/^https:/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("腾讯兼容瓦片翻转纵轴并与高德共用显示纠偏协议", () => {
     const tencent = createPresetConfig("tencent-street");
     expect(tencent.adapt).toBe("gcj02");

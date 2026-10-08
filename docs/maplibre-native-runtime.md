@@ -8,6 +8,8 @@
 
 开发版本锁定 `desktop-tauri/pnpm-lock.yaml` 与 `src-tauri/Cargo.lock`。MapLibre GL JS 5.24.0 使用 BSD-3-Clause，Tauri 使用 MIT/Apache-2.0，React 为 MIT。MapLibre、React 与 proj4 的许可证复制到 `public/licenses` 并随前端构建提供；正式分发还需汇总全部第三方声明。
 
+Esri内置公开瓦片由Tauri适配层的独立异步HTTP客户端直连，唯一道路业务引擎不变。依赖在 `src-tauri/Cargo.lock` 锁定：reqwest 0.13.5（MIT OR Apache-2.0）、native-tls 0.2.18（MIT OR Apache-2.0）、Tokio 1.53.1（MIT）。reqwest禁用默认特性，仅启用native-tls；Windows使用系统Schannel与证书存储，不新增外部TLS DLL或运行时安装步骤。其他平台遵循native-tls平台后端（Linux需OpenSSL），跨平台打包尚未验收。完整第三方声明仍须在公开发行前汇总。范围、并发/超时限制及实际显示验证见[Esri访问记录](esri-image-access.md)。
+
 数据库密码使用 Windows Credential Manager。Windows 目标依赖锁定 keyring 4.2.0 和 windows-native-keyring-store 1.1.0，两者许可证均为 MIT OR Apache-2.0，最低 Rust 版本为 1.88；通过 Rust 宿主直接调用系统存储，无需额外密码文件或外部程序。该存储适配仅在 Windows 启用，其他平台明确返回不支持，不回退到明文存储。密码按当前 Windows 用户及连接 UUID 隔离，便携构建已验证，独立安装器与干净系统部署仍按上述范围单独验收。
 
 GDAL 的 LICENSE.TXT 与 PROJ 的 copyright_and_licenses.csv 随数据目录复制。当前 OSGeo4W GDAL 链接闭包还包含 GEOS、SQLite、SpatiaLite、Arrow、curl、OpenSSL、Poppler、MySQL 等组件，不能把整个闭包声明为同一种宽松许可证。特别是 Poppler/MySQL 等组件的具体构建与分发条件，以及 MSVC 可再分发许可，必须按实际二进制逐项核对。当前本地开发便携目录不是已完成许可证审查的公开发行包。

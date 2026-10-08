@@ -1,5 +1,7 @@
 # Esri 影像访问失败记录
 
+> 最新状态：2026-10-08 按用户授权增加限定 Esri 图层的原生直连通道，在系统代理保持开启时，实际 Windows 工作台已显示卫星影像和山体阴影。下面保留故障排查历史，修复与验收见文末。
+
 ## 已核验现象
 
 在线底图 Esri World Imagery 在请求瓦片 `15/14443/2173` 时，工作台曾显示 `AJAXError: Failed to fetch`。2026-10-07 直接请求该瓦片，带和不带 `Origin` 请求头均返回 HTTP 403、`Server: AkamaiGHost` 和 `Access Denied` HTML。另行请求 `tile/0/0/0`、服务 metadata 及同瓦片的 `server.arcgisonline.com` 入口也返回 403。该结果确认这些服务请求被拒绝；浏览器里的 `Failed to fetch` 本身不包含 HTTP 状态，不能单独据此判断为 403。
@@ -37,3 +39,13 @@
 另外，在实际 Tauri WebView2 页面对同一 `server.arcgisonline.com/World_Imagery` 零级瓦片依次测试普通 `Image`、`crossOrigin=anonymous` 图片、`fetch` 及不发送 Referer 的 `fetch`。四种方式均失败；通过 CDP `Network.responseReceivedExtraInfo` 取得四个实际 HTTP 403 响应。普通图片也失败，故仅改为 Leaflet 图片加载不能解决当前工作台的访问拒绝；CORS 缺头是本次拒绝响应伴随的现象，不能将其单独认定为根因。此次补齐了之前工作台只观测到 status 0 时没有的 HTTP 状态证据。
 
 进程证据与请求对比保存在 `artifacts/maplibre-qa/esri-request-comparison/` 的 `process-network-settings.json` 和 `request-comparison.json`。结合此前直连 200、经系统代理 403 的对照，当前证据支持网络配置差异解释。未修改用户系统代理、DataGrip 或工作台的运行时网络设置，未声称正常显示已经修复。
+
+## 2026-10-08 修复与实际显示验收
+
+用户明确要求修改，让影像正常加载。最终实现采用 Tauri 原生 `esri_tile` 命令和 MapLibre 的 `esri-direct` 协议：两个内置公开 Esri 预设在桌面模式转换为原生地址，由 Rust 专用 HTTP 客户端直接连接 `server.arcgisonline.com`。浏览器预览及其他底图仍沿用原地址；没有修改系统代理、全局浏览器代理、CSP、证书验证或跨域安全检查。前面的按域名 WebView2 参数尝试未通过，已撤去，不属于最终实现。
+
+原生入口仅接受 `imagery`、`hillshade` 图层和范围内的整数瓦片坐标，不接受任意 URL。请求最多8个并发、连接超时5秒、单请求超时12秒、单瓦片上限2MiB；不跟随重定向，拒绝非JPEG/PNG数据。使用异步网络I/O和二进制IPC，不运行外部下载器，不写磁盘缓存或批量预取。缓存沿用 MapLibre 当前视口瓦片缓存。取消显示时前端丢弃返回结果；已发出的原生请求仍会完成或在12秒网络超时内结束，切换不会应用过期瓦片。可获得的 HTTP 错误继续走现有工作台提示。
+
+158项前端测试、修改文件格式检查、TypeScript/Vite、Tauri Rust fmt/test（4项）及Clippy通过；Windows调试便携部署为 `build-20261008-121738-190`。通过实际工作台鼠标键盘导入定位线段、搜索并选择地图，完成北京Esri影像、乌鲁木齐Esri山体阴影和巴黎OSM三项检查，地图来源加载完成、原生瓦片纹理可用、署名可见、源矢量图层保留。另在天山代表区域通过实际缩小按钮验证阴影地形显示。截图已查看，报告位于 `artifacts/maplibre-qa/esri-native-verified/` 与 `artifacts/maplibre-qa/esri-hillshade-mountain/`。测试期间系统代理保持开启，原生Esri客户端按授权直连。
+
+这是本机代表区域的实际显示验收，不代表服务在所有网络或区域永久可用。新程序需要重启工作台才能使用；干净Windows安装器、其他操作系统和必须经企业代理访问的环境仍待对应验收。

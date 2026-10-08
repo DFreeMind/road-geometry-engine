@@ -1,3 +1,4 @@
+mod esri_tiles;
 mod generation_issues;
 
 use road_geometry_service::{runtime::RuntimeContext, Service};
@@ -10,6 +11,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(generation_issues::GenerationIssuesState::default())
         .invoke_handler(tauri::generate_handler![
+            esri_tiles::esri_tile,
             generation_issues::open_generation_issues_window,
             generation_issues::sync_generation_issues_window,
             generation_issues::get_generation_issues_snapshot,
@@ -44,6 +46,7 @@ pub fn run() {
             transform_collection
         ])
         .setup(|app| {
+            app.manage(esri_tiles::EsriTiles::new()?);
             let resource_dir = app.path().resource_dir().ok();
             app.manage(Arc::new(Service::new(RuntimeContext::new(resource_dir))));
             Ok(())

@@ -117,9 +117,16 @@ try {
     await click('[aria-label="底图设置"]');
     await fill('.basemap-picker__search input',item.search);
     await click('[data-basemap-id="'+item.id+'"]');
+    for (let step=0; step<(item.zoomOut??0); step++) {
+      await click('.maplibregl-ctrl-zoom-out');
+      await pause(350);
+    }
     await waitFor('window.__ROAD_WORKBENCH__.getMap().isSourceLoaded("user-xyz")',45);
     await pause(400);
-    const responses=imageResponses.filter(r=>r.url.includes(item.urlPart)&&r.status===200);
+    // 原生瓦片不经过浏览器网络面板；检查已解码并上传到渲染器的瓦片纹理。
+    const responses=item.native
+      ? await evaluate('Object.values(window.__ROAD_WORKBENCH__.getMap().style.tileManagers["user-xyz"]._inViewTiles._tiles).filter(t=>t.state==="loaded"&&t.texture).map(t=>({state:t.state,transport:"native"}))')
+      : imageResponses.filter(r=>r.url.includes(item.urlPart)&&r.status===200);
     assert(responses.length, '工作台未收到区域影像瓦片：'+item.id);
     assert.deepEqual(await evaluate('window.__ROAD_WORKBENCH__.getProject().vector_basemaps'),layersBefore);
     const attribution=await evaluate('document.querySelector(".maplibregl-ctrl-attrib").innerText');

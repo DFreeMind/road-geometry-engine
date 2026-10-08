@@ -169,7 +169,11 @@ import { CrossSectionEditor } from "./CrossSectionEditor";
 import { WorkbenchMenu } from "./WorkbenchMenu";
 import { AlongRouteTools } from "./AlongRouteTools";
 import { BasemapPicker } from "./BasemapPicker";
-import { registerBasemapProtocols, type BasemapConfig } from "./basemaps";
+import {
+  desktopBasemapConfig,
+  registerBasemapProtocols,
+  type BasemapConfig,
+} from "./basemaps";
 import {
   formatOnlineBasemapLoadError,
   isStaleOnlineBasemapLoadError,
@@ -4285,7 +4289,7 @@ function Workbench() {
     if (!map) return;
     const previous = selectedBasemapRef.current;
     const request = ++basemapStyleRequest.current;
-    const selected = config.id === "none" ? null : config;
+    const selected = config.id === "none" ? null : desktopBasemapConfig(config);
     selectedBasemapRef.current = selected;
     setActiveBasemap(selected);
     setShowBasemap(false);
