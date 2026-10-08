@@ -9,10 +9,32 @@ import {
   gcj02ToWgs84,
   validateTileServiceUrl,
   wgs84ToGcj02,
+  resolveGcjTileUrl,
 } from "../src/workbench/basemaps";
 
 describe("底图目录与服务配置", () => {
-  it("按用途展示十一个常用预设并把影像排在前面", () => {
+  it("腾讯兼容瓦片翻转纵轴并与高德共用显示纠偏协议", () => {
+    const tencent = createPresetConfig("tencent-street");
+    expect(tencent.adapt).toBe("gcj02");
+    expect(tencent.url).toBe("gcj://tencent-street/{z}/{x}/{y}");
+    const first = new URL(resolveGcjTileUrl("tencent-street", 3, -1, 0));
+    expect(first.searchParams.get("x")).toBe("7");
+    expect(first.searchParams.get("y")).toBe("7");
+    const last = new URL(resolveGcjTileUrl("tencent-street", 3, 8, 7));
+    expect(last.searchParams.get("x")).toBe("0");
+    expect(last.searchParams.get("y")).toBe("0");
+    expect(
+      new URL(resolveGcjTileUrl("amap-street", 3, -1, 0)).searchParams.get("y"),
+    ).toBe("0");
+    expect(
+      new URL(resolveGcjTileUrl("tencent-street", 0, 0, 0)).searchParams.get(
+        "y",
+      ),
+    ).toBe("0");
+    expect(() => resolveGcjTileUrl("unknown", 3, 0, 0)).toThrow(/未知/);
+  });
+
+  it("按用途展示十四个常用预设并把影像排在前面", () => {
     expect(BASEMAP_PRESETS.map(({ id }) => id)).toEqual([
       "amap-satellite",
       "esri-public",
@@ -22,8 +44,11 @@ describe("底图目录与服务配置", () => {
       "ign-ortho",
       "cuzk-orthophoto",
       "amap-street",
+      "tencent-street",
       "osm",
+      "osm-humanitarian",
       "openfreemap-liberty",
+      "esri-hillshade",
       "opentopomap",
     ]);
     expect(BASEMAP_GROUPS).toEqual([
@@ -57,8 +82,11 @@ describe("底图目录与服务配置", () => {
       "ign-ortho",
       "cuzk-orthophoto",
       "amap-street",
+      "tencent-street",
       "osm",
+      "osm-humanitarian",
       "openfreemap-liberty",
+      "esri-hillshade",
       "opentopomap",
     ]) {
       const config = createPresetConfig(id);
@@ -93,14 +121,13 @@ describe("底图目录与服务配置", () => {
     expect(() => createPresetConfig("esri-token", "token=abc")).toThrow(/令牌/);
   });
 
-  it("不再提供不适合道路判读或与常用来源重复的预设", () => {
+  it("不提供低分辨率观测来源与已移除的旧预设标识", () => {
     for (const id of [
       "nasa-gibs",
       "nasa-viirs",
       "osmfr-hot",
       "osmfr",
       "esri-clarity",
-      "esri-hillshade",
     ]) {
       expect(() => createPresetConfig(id)).toThrow(/找不到/);
     }

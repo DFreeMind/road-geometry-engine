@@ -148,6 +148,22 @@ export const BASEMAP_PRESETS: BasemapPreset[] = [
     docs: "https://lbs.amap.com/api/javascript-api-v2/guide/abc/basetype",
   },
   {
+    id: "tencent-street",
+    label: "腾讯道路 · 兼容服务",
+    url: "gcj://tencent-street/{z}/{x}/{y}",
+    attribution: '<a href="https://lbs.qq.com/">© 腾讯地图</a>',
+    maxZoom: 18,
+    displayCrs: "GCJ-02",
+    adapt: "gcj02",
+    sourceType: "xyz",
+    group: "街道与路网",
+    coverage: "中国为主",
+    updateInfo: "地图数据日期随地区和图层变化",
+    detail: "道路、地名和地物标注；兼容瓦片服务",
+    note: "参考项目同款兼容入口；GCJ-02 瓦片在显示时近似纠偏，服务可用性及使用条件以腾讯为准。",
+    docs: "https://lbs.qq.com/",
+  },
+  {
     id: "osm",
     label: "OpenStreetMap 街道",
     url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -162,6 +178,22 @@ export const BASEMAP_PRESETS: BasemapPreset[] = [
     detail: "道路、地名和地物标注",
     note: "遵循 OSM 瓦片政策并保留可见署名；仅用于当前视口交互浏览。",
     docs: "https://operations.osmfoundation.org/policies/tiles/",
+  },
+  {
+    id: "osm-humanitarian",
+    label: "OpenStreetMap · Humanitarian",
+    url: "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · <a href="https://www.hotosm.org/">Humanitarian OpenStreetMap Team</a> · <a href="https://www.openstreetmap.fr/">OSM France</a>',
+    maxZoom: 19,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "街道与路网",
+    coverage: "全球 OpenStreetMap 数据覆盖区",
+    updateInfo: "地图数据持续更新，瓦片按服务策略缓存",
+    detail: "面向人道救援用途的道路与地物地图样式",
+    note: "OSM France 提供的 HOT 样式；政策要求公开可访问、非营利、适度流量并保留署名，不用于内网地图；其他用途需另选供应商或自建服务。",
+    docs: "https://www.openstreetmap.fr/usage/",
   },
   {
     id: "openfreemap-liberty",
@@ -179,6 +211,21 @@ export const BASEMAP_PRESETS: BasemapPreset[] = [
     detail: "矢量街道图，显示道路、地名和地物",
     note: "公开 MapLibre 样式；使用时保留地图自动署名。",
     docs: "https://openfreemap.org/quick_start/",
+  },
+  {
+    id: "esri-hillshade",
+    label: "Esri 山体阴影",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© Esri · USGS · NOAA",
+    maxZoom: 16,
+    displayCrs: "WGS84",
+    sourceType: "xyz",
+    group: "地形参考",
+    coverage: "全球；地形数据分辨率因地区而异",
+    updateInfo: "数据日期随地区及来源变化",
+    detail: "以明暗表现地形起伏，辅助查看山地与谷地",
+    note: "地形阴影参考图；不能替代工程高程数据，访问取决于 ArcGIS Online 服务和网络。",
+    docs: "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer",
   },
   {
     id: "opentopomap",
@@ -223,13 +270,31 @@ export type BasemapProtocolRequest = {
   signal: AbortSignal;
 };
 
-const AMAP_URLS: Record<string, string> = {
+const GCJ_TILE_URLS: Record<string, string> = {
   "amap-street":
     "https://webrd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}",
   "amap-satellite":
     "https://webst02.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
+  "tencent-street":
+    "https://rt0.map.gtimg.com/realtimerender?z={z}&x={x}&y={y}&type=vector&style=0&scene=0",
 };
 let gcjProtocolsRegistered = false;
+
+/** 将北向下的 XYZ 行号转换为腾讯兼容服务的 TMS 行号，横向按全球瓦片数回绕。 */
+export function resolveGcjTileUrl(
+  serviceId: string,
+  zoom: number,
+  x: number,
+  y: number,
+) {
+  const template = GCJ_TILE_URLS[serviceId];
+  if (!template) throw new Error("未知的 GCJ-02 底图类型");
+  const count = 2 ** zoom;
+  return template
+    .replace("{z}", String(zoom))
+    .replace("{x}", String(((x % count) + count) % count))
+    .replace("{y}", String(serviceId === "tencent-street" ? count - 1 - y : y));
+}
 
 function inChina(lng: number, lat: number) {
   return lng >= 72.004 && lng <= 137.8347 && lat >= 0.8293 && lat <= 55.8271;
@@ -315,7 +380,7 @@ function pixelLonLat(x: number, y: number, zoom: number): [number, number] {
   return [lng, lat];
 }
 
-async function loadAmapTile(url: string, signal: AbortSignal) {
+async function loadGcjTile(url: string, signal: AbortSignal) {
   const response = await fetch(url, { signal, mode: "cors" });
   if (!response.ok) throw new Error(`底图瓦片请求失败（${response.status}）`);
   const bitmap = await createImageBitmap(await response.blob());
@@ -363,8 +428,7 @@ async function warpGcjTile(
     throw new Error("坐标纠偏瓦片范围超出单次请求上限");
   }
 
-  const urlTemplate = AMAP_URLS[serviceId];
-  if (!urlTemplate) throw new Error("未知的高德底图类型");
+  if (!GCJ_TILE_URLS[serviceId]) throw new Error("未知的 GCJ-02 底图类型");
   const mosaic = document.createElement("canvas");
   mosaic.width = xTiles * 256;
   mosaic.height = yTiles * 256;
@@ -375,12 +439,8 @@ async function warpGcjTile(
       for (let sourceX = minTileX; sourceX <= maxTileX; sourceX++) {
         if (signal.aborted)
           throw new DOMException("The operation was aborted", "AbortError");
-        const wrappedX = ((sourceX % tileCount) + tileCount) % tileCount;
-        const url = urlTemplate
-          .replace("{z}", String(zoom))
-          .replace("{x}", String(wrappedX))
-          .replace("{y}", String(sourceY));
-        const bitmap = await loadAmapTile(url, signal);
+        const url = resolveGcjTileUrl(serviceId, zoom, sourceX, sourceY);
+        const bitmap = await loadGcjTile(url, signal);
         try {
           mosaicContext.drawImage(
             bitmap,
@@ -472,12 +532,12 @@ async function warpGcjTile(
   }
 }
 
-/** 在创建 MapLibre 地图前注册高德瓦片的显示坐标纠偏协议。 */
+/** 在创建 MapLibre 地图前注册 GCJ-02 瓦片的显示坐标纠偏协议。 */
 export function registerBasemapProtocols() {
   if (gcjProtocolsRegistered) return;
   addProtocol("gcj", async (params, abortController) => {
     const match = params.url.match(/^gcj:\/\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/);
-    if (!match) throw new Error("无效的高德瓦片地址");
+    if (!match) throw new Error("无效的 GCJ-02 瓦片地址");
     const [, serviceId, z, x, y] = match;
     const data = await warpGcjTile(
       serviceId,
